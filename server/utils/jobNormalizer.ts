@@ -1,0 +1,328 @@
+export interface NormalizedJobData {
+  /** 职位链接 (Job URL) */
+  jobUrl: string;
+  /** 首发/发布日期 (Publish Date) */
+  publishDate: string;
+  /** 页面更新日期 (Update Date) */
+  updateDate: string;
+  /** 爬虫抓取日期 (Spider Fetch Date) */
+  spiderDate: string;
+  /** 所属行业 (Company Industry) */
+  companyIndustry: string;
+  /** 融资阶段 (Company Stage) */
+  companyStage: string;
+  /** 人员规模 (Company Scale) */
+  companyScale: string;
+  /** 公司或品牌名称 (Brand / Company Name) */
+  brandName: string;
+  /** 公司全称 (Company Full Name) */
+  companyFullName: string;
+  /** 公司ID */
+  companyId: string;
+  /** HR/招聘者姓名 (HR Name) */
+  hrName: string;
+  /** HR/招聘者职位 (HR Position) */
+  hrPosition: string;
+  /** hr/招聘者所属公司名称 (HR Company Name) */
+  hrCompanyName: string;
+  /** 福利待遇列表 (Welfare Tags) */
+  welfareList: string[];
+  /** 技能标签列表 (Skill Tags) */
+  skills: string[];
+  /** 职位ID (Job ID) */
+  jobId: string;
+  /** 职位名称 (Job Name) */
+  jobName: string;
+  /** 薪资范围 (Salary Range) */
+  salaryRange: string;
+  /** 职位描述 (Job Description) */
+  jobDesc: string;
+  /** 经验要求 (Experience Required) */
+  experience: string;
+  /** 学历要求 (Degree Required) */
+  degree: string;
+  /** 职位类型 (Job Type) */
+  positionType: string;
+  /** 职位标签 (Job Tags) */
+  jobTags: string[];
+  /** 城市 (City) */
+  city: string;
+  /** 区域 (Area) */
+  area: string;
+  /** 商圈 (Business District) */
+  businessDistrict: string;
+  /** 详细工作地址 (Work Address) */
+  address: string;
+  /** 是否外包或猎头 (Is Headhunter/Outsourcing) */
+  isHeadhunter: boolean;
+  /** 代招客户公司名称 (Client Company Name) */
+  clientCompanyName: string;
+  /** 数据来源 (Source) */
+  dataSource: string;
+}
+
+/** 提取标签的通用工厂函数，根据传入的可能属性名来提取 */
+const createTagExtractor = (propNames: string[]) => (tagData: any): string[] => {
+  if (Array.isArray(tagData)) {
+    return tagData.map(t => {
+      if (typeof t === 'object' && t !== null) {
+        for (const prop of propNames) {
+          if (t[prop]) return String(t[prop]);
+        }
+      }
+      return typeof t === 'string' ? t.trim() : String(t);
+    }).filter(Boolean);
+  }
+  if (typeof tagData === 'string') {
+    return tagData.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return [];
+};
+
+const extractBossTags = createTagExtractor(['name']);
+const extract51JobTags = createTagExtractor(['text', 'label']);
+const extractZhilianTags = createTagExtractor(['name', 'value', 'itemValue', 'tag', 'label']);
+const extractLiepinTags = createTagExtractor(['tagName', 'name', 'label']);
+const extractFallbackTags = createTagExtractor(['name', 'label']);
+
+/** Boss直聘适配器 */
+function normalizeBossJob(job: any, raw: any, raw2: any, companyInfo?: any, jobDetail?: any): NormalizedJobData {
+  const boss_single = jobDetail || raw?.boss_single_detail || raw || {};
+  const jd = raw?.jobDetail?.zpData || {};
+  const info = jd.jobInfo || {};
+  const boss = jd.bossInfo || {};
+  const comp = jd.brandComInfo || {};
+
+  const bossEncryptJobId = raw?.encryptJobId || info?.encryptId || job.jobId;
+
+  return {
+    jobUrl: bossEncryptJobId ? `https://www.zhipin.com/job_detail/${bossEncryptJobId}.html` : '',
+    publishDate: '',
+    updateDate: boss_single['页面更新时间'] || boss_single['最后刷新时间'] || '',
+    spiderDate: raw?.['创建时间'] || boss_single['抓取时间'] || '',
+    companyIndustry: raw?.brandIndustry || comp.industryName || boss_single['公司行业'] || '未知',
+    companyStage: raw?.brandStageName || comp.customerBrandStageName || comp.stageName || '未知',
+    companyScale: raw?.brandScaleName || comp.scaleName || boss_single['公司规模'] || '未知',
+    brandName: raw?.proxyJob === 0 ? (raw?.brandName || comp.brandName || comp.customerBrandName || boss_single['公司名称'] || '') : (boss.brandName || boss_single['HR职位'] || ''),
+    companyFullName: raw?.proxyJob === 0 ? (raw?._fetched_companyFullName || raw?.['公司全称'] || boss_single['公司全称'] || raw?.brandName || comp.customerBrandName || comp.brandName || '') : (boss.brandName || boss_single['HR职位'] || ''),
+    companyId: raw?.encryptBrandId || comp.encryptBrandId || boss.brandName || '',
+    hrName: raw?.bossName || boss.name || boss_single['HR姓名'] || '未知',
+    hrPosition: raw?.bossTitle || boss.title || boss_single['HR职位'] || '未知',
+    hrCompanyName: boss.brandName || raw?.brandName || comp.brandName || comp.customerBrandName || boss_single['HR职位'] || '未知',
+    welfareList: extractBossTags(raw?.welfareList || comp.labels || boss_single['公司福利']),
+    skills: extractBossTags(raw?.skills || info.showSkills || boss_single['技能标签']),
+    jobId: raw?.encryptJobId || info?.encryptId || job.jobId,
+    jobName: raw?.jobName || info.jobName || boss_single['职位名称'] || job.jobName || '未知',
+    salaryRange: raw?.salaryDesc || info.salaryDesc || boss_single['薪资待遇'] || '未知',
+    jobDesc: info.postDescription || boss_single['职位描述'] || '暂无描述',
+    experience: raw?.jobExperience || info.experienceName || boss_single['工作经验'] || job.experience || '经验不限',
+    degree: raw?.jobDegree || info.degreeName || boss_single['学历要求'] || job.degree || '学历不限',
+    positionType: raw?.proxyJob || '',
+    jobTags: extractBossTags(raw?.jobLabels),
+    city: raw?.cityName || info.locationName || '',
+    area: raw?.areaDistrict || '',
+    businessDistrict: raw?.businessDistrict || '',
+    address: info.address || boss_single['详细完整地址'] || '',
+    isHeadhunter: raw?.proxyJob === 1 || info?.proxyJob === 1,
+    clientCompanyName: raw?.proxyJob === 1 ? (raw?.brandName || comp.customerBrandName || comp.brandName || '') : '',
+    dataSource: 'BOSS直聘',
+  };
+}
+
+/** 51job适配器 */
+function normalize51Job(job: any, raw: any, raw2: any, companyInfo?: any, jobDetail?: any): NormalizedJobData {
+  const fallback = raw || {};
+  const detail = raw?.raw_detail_json || {};
+  const info = detail.detailJobInfo || {};
+  const hr = detail.jobHrInfo || {};
+  return {
+    jobUrl: fallback.jobHref || '',
+    publishDate: fallback.issueDateString || info.issueDate || '',
+    updateDate: fallback.updateDateTime || '',
+    spiderDate: fallback['创建时间'] || fallback['抓取时间'] || '',
+    companyIndustry: fallback.coIndustryAllText || info.coIndustryAllText || '',
+    companyStage: fallback.companyTypeString || '未知', // 51job typically provides company type instead of financing stage
+    companyScale: fallback.companySizeString || '未知',
+    brandName: fallback.companyName || info.coName || fallback.companyFullName || job.companyName || '未知',
+    companyFullName: fallback.companyFullName || info.companyName || job.companyName || '未知',
+    companyId: fallback.encCoId || '',
+    hrName: fallback.hrName || hr.hrName || '未知',
+    hrPosition: fallback.hrPosition || hr.hrPosition || '未知',
+    hrCompanyName: fallback.fullCompanyName || fallback.companyName || job.companyName || '未知',
+    welfareList: extract51JobTags(fallback.welfare || info.jobWelfareAllDataList || []),
+    skills: extract51JobTags(fallback.jobKeywordList || info.jobKeywordList || info.jobKeywordString || []),
+    jobId: fallback.jobId || info.jobId || job.jobId || '',
+    jobName: fallback.jobName || info.jobName || job.jobName || '',
+    salaryRange: fallback.provideSalaryString || info.provideSalaryString || '未知',
+    jobDesc: fallback.jobDescribe || info.jobDescribe || '暂无描述',
+    experience: fallback.workYearString || info.workYearString || job.experience || '经验不限',
+    degree: fallback.degreeString || info.degreeString || job.degree || '学历不限',
+    positionType: fallback.jobType || info.jobType || '',
+    jobTags: extract51JobTags(fallback.jobTags || info.jobTags || []),
+    city: fallback.jobAreaLevelDetail?.cityString || info.jobAreaLevelDetail?.cityString || fallback.jobAreaString || '',
+    area: fallback.jobAreaLevelDetail?.districtString || info.jobAreaLevelDetail?.districtString || '',
+    businessDistrict: fallback.landMarkString || fallback.jobAreaLevelDetail?.landMarkString || info.jobAreaLevelDetail?.landMarkString || '',
+    address: fallback._detail_address || info.companyAddress || fallback.companyAddress || fallback.jobAreaString || '',
+    isHeadhunter: fallback.jobType === '1' || fallback.jobType === '2' || fallback.companyTypeString === '中介',
+    clientCompanyName: fallback.jobType === '1' || fallback.jobType === '2' ? fallback.compName : '',
+    dataSource: '51job',
+  };
+}
+
+/** 智联招聘适配器 */
+function normalizeZhilianJob(job: any, raw: any, raw2: any, companyInfo?: any, jobDetail?: any): NormalizedJobData {
+  const fallback = raw || {};
+  const jd = fallback.jobDetailData || {};
+  const posBase = jd.position?.base || {};
+  const staff = jd.staff || {};
+
+  return {
+    jobUrl: fallback.positionUrl || fallback.positionURL || fallback.list_url || '',
+    publishDate: fallback.firstPublishTime || fallback.publishTime || '',
+    updateDate: fallback.publishTime || '',
+    spiderDate: fallback['创建时间'] || fallback['抓取时间'] || '',
+    companyIndustry: fallback.industryName || '未知',
+    companyStage: fallback.financingStage?.name || '未知',
+    companyScale: fallback.companySize || '未知',
+    brandName: fallback.companyName || jd.company?.companyProxy?.companyName || job.companyName || '未知',
+    companyFullName: fallback.companyName || job.companyName || '未知',
+    companyId: fallback.companyId || '',
+    hrName: staff.staffName || fallback.staffCard?.staffName || '未知',
+    hrPosition: staff.hrJob || fallback.staffCard?.hrJob || '未知',
+    hrCompanyName: staff.companyName || fallback.companyName || job.companyName || '未知',
+    welfareList: Array.from(new Set([
+      ...((fallback.jobKeyword?.keywords || []).map((k: any) => k?.itemValue).filter(Boolean)),
+      ...(fallback.jobKnowledgeWelfareFeatures || [])
+    ])),
+    skills: extractZhilianTags(
+      (jd.position?.desc?.labels?.length ? jd.position.desc.labels : null) ||
+      (fallback.jobSkillTags?.length ? fallback.jobSkillTags : null) ||
+      fallback.skillLabel || []
+    ),
+    jobId: fallback.number || posBase.positionNumber || job.jobId || '',
+    jobName: fallback.name || fallback.list_name || posBase.positionName || job.jobName || '',
+    salaryRange: fallback.salary60 || posBase.salary || job.salary || '未知',
+    jobDesc: jd.position?.desc?.description || fallback.jobSummary || '暂无描述',
+    experience: posBase.positionWorkingExp || fallback.workingExp || job.experience || '经验不限',
+    degree: posBase.education || fallback.education || job.degree || '学历不限',
+    positionType: fallback.proxyModel.recruitPosition || '',
+    jobTags: extractZhilianTags(fallback.showSkillTags || []),
+    city: fallback.workCity || fallback.jobRootOrgInfo?.cityName || '',
+    area: fallback.cityDistrict || '',
+    businessDistrict: fallback.streetName || '',
+    address: jd.position?.workLocation?.workAddress || '',
+    isHeadhunter: fallback.proxyModel?.recruitPosition > 0 || false,
+    clientCompanyName: jd.companyProxy?.companyName || fallback.proxyModel?.proxiedOrgName || '',
+    dataSource: '智联招聘',
+  };
+}
+
+/** 猎聘适配器 */
+function normalizeLiepinJob(job: any, raw: any, raw2: any, companyInfo?: any, jobDetail?: any): NormalizedJobData {
+  const fallback = raw2 || raw || {};
+  const comp = fallback.comp || {};
+  const jobInfo = fallback.job || {};
+  const jdJson = fallback.jobDetailJson || {};
+  let hrCoName = ''
+  const recruiterInfo = jdJson?.supplementalDomData?.recruiterInfo
+  if (Array.isArray(recruiterInfo) && recruiterInfo.length > 0) {
+    const lastItem = recruiterInfo[recruiterInfo.length - 1]
+    if (typeof lastItem === 'string') {
+      hrCoName = lastItem.replace(/^·\s*/, '').trim()
+    }
+  }
+
+  return {
+    jobUrl: jobInfo.link || jdJson.url || '',
+    publishDate: jdJson.datePosted || jdJson.supplementalDomData?.cambrianPubDate || '',
+    updateDate: jdJson.supplementalDomData?.cambrianUpDate || jdJson.supplementalDomData?.domUpdateTime || '',
+    spiderDate: fallback['创建时间'] || fallback['抓取时间'] || '',
+    companyIndustry: jdJson.industry || comp.compIndustry || '未知',
+    companyStage: comp.compStage || '未知',
+    companyScale: comp.compScale || '未知',
+    brandName: comp.fullCompanyName || hrCoName || comp.compName || '未知',
+    companyFullName: comp.fullCompanyName || hrCoName || comp.compName || '未知',
+    companyId: comp.link?.match(/\/company\/(\d+)/)?.[1] || jdJson.hiringOrganization?.sameAs?.match(/\/company\/(\d+)/)?.[1] || '',
+    hrName: fallback.recruiter?.recruiterName || '未知',
+    hrPosition: fallback.recruiter?.recruiterTitle || '未知',
+    hrCompanyName: comp.fullCompanyName || hrCoName || comp.compName || '未知',
+    welfareList: extractLiepinTags(jdJson.supplementalDomData?.welfareTags || comp.compTags || []),
+    skills: extractLiepinTags(jobInfo.labels || []),
+    jobId: jobInfo.jobId || jdJson.identifier?.value || fallback['职位ID'] || '',
+    jobName: jobInfo.title || jdJson.title || '',
+    salaryRange: jobInfo.salary || jdJson.salary || '',
+    jobDesc: jdJson.description || jdJson.supplementalDomData?.jobDescribe || '暂无描述',
+    experience: jobInfo.requireWorkYears || jdJson.experienceRequirements || '经验不限',
+    degree: jobInfo.requireEduLevel || jdJson.educationRequirements || '学历不限',
+    positionType: jobInfo.jobKind || '',
+    jobTags: extractLiepinTags(fallback.jobTags || jobInfo.jobTags || []),
+    city: jobInfo.dqCityName || jdJson.jobLocation?.address?.addressLocality || '',
+    area: jobInfo.dqAreaName || '',
+    businessDistrict: fallback.businessDistrict || jobInfo.businessDistrict || '',
+    address: jdJson.jobLocation?.address?.streetAddress || jdJson.jobLocation?.address?.addressLocality || jobInfo.dq || '',
+    isHeadhunter: String(jobInfo.jobKind) === '1',
+    clientCompanyName: jobInfo.jobKind === '1' ? (comp.compName || jdJson.hiringOrganization?.name) : '',
+    dataSource: '猎聘',
+  };
+}
+
+/** 兜底混合适配器 */
+function normalizeFallbackJob(job: any, raw: any, raw2: any, companyInfo?: any, jobDetail?: any): NormalizedJobData {
+  const fallback = raw || {};
+  return {
+    jobUrl: fallback['职位链接'] || fallback.jobUrl || fallback.url || '',
+    publishDate: fallback['发布时间'] || fallback['发布日期'] || fallback.publishDate || '',
+    updateDate: fallback['更新时间'] || fallback.updateDate || '',
+    spiderDate: fallback['创建时间'] || fallback.spiderDate || '',
+    companyIndustry: fallback['公司行业'] || fallback.companyIndustry || '未知',
+    companyStage: fallback['融资阶段'] || fallback.companyStage || '未知',
+    companyScale: fallback['公司规模'] || fallback.companyScale || '未知',
+    brandName: fallback['公司全称'] || fallback.brandName || job.companyName || '未知',
+    companyFullName: fallback['公司全称'] || fallback.companyName || job.companyName || '未知',
+    companyId: fallback.companyId || '',
+    hrName: fallback['HR姓名'] || fallback.hrName || '未知',
+    hrPosition: fallback['HR职位'] || fallback.hrPosition || '未知',
+    hrCompanyName: fallback['公司全称'] || fallback.companyName || job.companyName || '未知',
+    welfareList: extractFallbackTags(fallback['公司福利'] || fallback.welfareList),
+    skills: extractFallbackTags(fallback['技能标签'] || fallback.skills),
+    jobId: fallback.positionId || fallback.jobId || job.jobId || '',
+    jobName: fallback.name || job.jobName || '',
+    salaryRange: fallback.salary || job.salary || '未知',
+    jobDesc: fallback['职位描述'] || fallback.jobDesc || '暂无描述',
+    experience: fallback['工作经验'] || fallback.experience || job.experience || '经验不限',
+    degree: fallback['学历要求'] || fallback.degree || job.degree || '学历不限',
+    positionType: fallback.jobType || job.positionType || '',
+    jobTags: extractFallbackTags(fallback.jobTags || job.jobTags || []),
+    city: fallback.city || job.city || '',
+    area: fallback.area || job.area || '',
+    businessDistrict: fallback.businessDistrict || job.businessDistrict || '',
+    address: fallback['详细工作地址'] || fallback.address || '',
+    isHeadhunter: false,
+    clientCompanyName: fallback['代招客户公司名称'] || fallback.clientCompanyName || '',
+    dataSource: '兜底',
+  };
+}
+
+/**
+ * 将原始职位数据清洗并映射为标准化格式
+ * @param job 职位数据库记录基本信息
+ * @param raw 职位原始 JSON 数据
+ * @returns NormalizedJobData 清洗后的标准数据
+ */
+export function normalizeJobData(job: any, raw: any, raw2: any, companyInfo?: any, jobDetail?: any): NormalizedJobData {
+  if (!raw) return normalizeFallbackJob(job, raw, companyInfo);
+
+  // 策略分发：根据平台调用专属适配器
+  switch (job.platform) {
+    case 'Boss直聘':
+      return normalizeBossJob(job, raw, raw2, companyInfo, jobDetail);
+    case '51job':
+      return normalize51Job(job, raw, raw2, companyInfo, jobDetail);
+    case '智联':
+      return normalizeZhilianJob(job, raw, raw2, companyInfo, jobDetail);
+    case '猎聘':
+      return normalizeLiepinJob(job, raw, raw2, companyInfo, jobDetail);
+    default:
+      return normalizeFallbackJob(job, raw, raw2, companyInfo, jobDetail);
+  }
+}

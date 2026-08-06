@@ -1,0 +1,120 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Job {
+  id          String   @id @default(uuid())
+  jobId       String
+  title       String
+  companyName String
+  companyFullName String?
+  salary      String
+  location    String
+  platform    String
+  status       String   @default("normal")
+  rawData      String
+  rawData2     String?
+  dataSource   String   @default("unknown")
+  
+  // 与职位强绑定的状态
+  isFavorited  Boolean  @default(false)
+  isHidden     Boolean  @default(false)
+  tags         String?  // JSON string
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  // 关联的面试记录 (强绑定，随职位删除而删除)
+  interviews   Interview[]
+
+  @@unique([jobId, platform])
+}
+
+// 独立的 AI 结果表（脱离职位独立存在，不设强外键）
+model AiJobResult {
+  jobId        String   @id
+  score        Int?
+  matchLevel   String?
+  resultText   String?
+  intro        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// 独立的公司信息表
+model Company {
+  id              String   @id @default(uuid())
+  companyName     String
+  companyFullName String?
+  companyId       String?
+  sourcePlatform  String
+  rawData         String?  // 保存抓取到的完整工商信息JSON
+  rawData2        String?  // 保存抓取到的第二来源的完整工商信息JSON
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([companyName, sourcePlatform])
+}
+
+model Interview {
+  id        String   @id @default(uuid())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  time      DateTime
+  type      String   // 面试方式: 电话, 视频, 现场
+  round     String   // 面试轮次: 一面, 二面, HR面等
+  note      String?  // 备注/地址等
+  debrief   String?  // 复盘内容
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BlacklistedCompany {
+  companyName String   @id
+  createdAt   DateTime @default(now())
+}
+
+model QuestionBank {
+  id            String   @id @default(uuid())
+  serialNo      Int?
+  title         String
+  themeCategory String?
+  subCategory   String?
+  tags          String?  // JSON string
+  answer        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model AiSettings {
+  id              String   @id @default("default")
+  activeProfileId String
+  profiles        String   // JSON string of all profiles
+  resume          String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model ZhilianEnrichmentCache {
+  jobId     String   @id
+  rawData   String   // JSON string
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BossSingleDetail {
+  jobId     String   @id
+  rawData   String   // JSON string
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("boss_single_details")
+}

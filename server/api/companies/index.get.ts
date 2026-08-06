@@ -1,0 +1,176 @@
+import prisma from '../../utils/prisma'
+import { normalizeJobData } from '../../utils/jobNormalizer'
+
+export default defineEventHandler(async (event) => {
+  try {
+    // 1. 获取所有存在并且未隐藏的 Job（排除黑名单我们可以在前端或者这里做，这里简单起见抓取所有正常数据）
+    const jobs = await prisma.job.findMany({
+      where: {
+        isHidden: false,
+        status: {
+          not: 'deleted' // 如果有类似状态的话
+        }
+      },
+      select: {
+        jobId: true,
+        title: true,
+        companyName: true,
+        salary: true,
+        location: true,
+        platform: true,
+        tags: true,
+        updatedAt: true,
+        rawData: true,
+        rawData2: true,
+        status: true
+      }
+    })
+
+    const jobIds = jobs.map(j => j.jobId)
+    const aiResults = await prisma.aiJobResult.findMany({
+      where: { jobId: { in: jobIds } }
+    })
+    const aiResultMap = Object.fromEntries(aiResults.map(a => [a.jobId, a]))
+
+    const blacklisted = await prisma.blacklistedCompany.findMany({
+      select: { companyName: true }
+    })
+    const blacklistedSet = new Set(blacklisted.map(b => b.companyName))
+
+    const bossJobIds = jobs.filter(j => j.platform === 'Boss直聘').map(j => j.jobId)
+    let bossSingleDetailsMap: Record<string, any> = {}
+    if (bossJobIds.length > 0) {
+      const bossDetails = await prisma.bossSingleDetail.findMany({
+        where: { jobId: { in: bossJobIds } }
+      })
+      bossSingleDetailsMap = Object.fromEntries(bossDetails.map(d => [d.jobId, d]))
+    }
+
+    // 2. 获取所有 Company 的详细信息（如福利、行业等）
+    const companiesData = await prisma.company.findMany()
+    const companyMap = new Map()
+    for (const c of companiesData) {
+      if (!companyMap.has(c.companyName)) {
+        companyMap.set(c.companyName, {
+          companyName: c.companyName,
+          sourcePlatform: c.sourcePlatform,
+          companyId: c.companyId,
+          rawData: c.rawData ? JSON.parse(c.rawData) : null,
+          rawData2: c.rawData2 ? JSON.parse(c.rawData2) : null,
+        })
+      }
+    }
+
+    // 3. 聚合：以 companyName 为 Key
+    const resultNodes = new Map()
+
+    for (const job of jobs) {
+      const compName = job.companyName
+      const platform = job.platform
+      if (!compName || compName === '未知公司' || !platform) continue
+
+      const nodeKey = compName
+
+      if (!resultNodes.has(nodeKey)) {
+        // 如果在 Company 表里有该公司记录，就拿过来用；如果没有，就建一个只有名称的壳
+        const baseCompany = companyMap.get(nodeKey) || { companyName: compName, sourcePlatform: platform, rawData: null }
+
+        resultNodes.set(nodeKey, {
+          ...baseCompany,
+          jobs: [],
+          platformSources: new Set()
+        })
+      }
+
+      const node = resultNodes.get(nodeKey)
+
+      // 添加平台来源
+      if (job.platform) {
+        node.platformSources.add(job.platform)
+      }
+
+      // 处理 tags（在 DB 中是 JSON string，或者原平台数据）
+      let parsedTags = []
+      try {
+        if (job.tags) parsedTags = JSON.parse(job.tags)
+      } catch (e) {
+        parsedTags = []
+      }
+
+      // Fallback tags from rawData if custom tags is empty
+      if (parsedTags.length === 0 && job.rawData) {
+        const raw = JSON.parse(job.rawData)
+        let rawTagsStr = raw['技能标签'] || (raw.jobInfo && raw.jobInfo.showSkills) || ''
+        if (typeof rawTagsStr === 'string' && rawTagsStr) {
+          parsedTags = rawTagsStr.split(',').filter(t => t.trim())
+        }
+      }
+
+      let experience = '不限'
+      let degree = '不限'
+      if (job.rawData) {
+        const raw = JSON.parse(job.rawData)
+        experience = raw['工作经验'] || raw.jobExperience || '不限'
+        degree = raw['学历要求'] || raw.jobDegree || '不限'
+      }
+
+      // Add to jobs array
+      const parsedRawData = job.rawData ? JSON.parse(job.rawData) : {}
+      let parsedRawData2 = job.rawData2 ? JSON.parse(job.rawData2) : {}
+      let parsedBossSingleDetail = null;
+      if (job.platform === 'Boss直聘' && bossSingleDetailsMap[job.jobId]) {
+        try {
+          parsedBossSingleDetail = JSON.parse(bossSingleDetailsMap[job.jobId].rawData)
+        } catch (e) { }
+      }
+      const normalizedData = normalizeJobData(job, parsedRawData, parsedRawData2, node.rawData, parsedBossSingleDetail)
+
+      const { rawData, rawData2, tags, ...jobWithoutRawData } = job as any;
+      let companyWithoutRawData = null;
+      if (node) {
+        const { rawData: companyRaw, rawData2: companyRaw2, jobs: _jobs, platformSources: _platformSources, ...restCompany } = node as any;
+        companyWithoutRawData = restCompany;
+      }
+
+      node.jobs.push({
+        ...jobWithoutRawData,
+        tags: parsedTags,
+        normalizedData: normalizedData,
+        aiResult: aiResultMap[job.jobId] || null,
+        company: companyWithoutRawData,
+        isBlacklisted: blacklistedSet.has(job.companyName)
+      })
+    }
+
+    // 4. 将 Map 转为 Array，按职位数量倒序排列，并把 Set 转成 Array
+    let finalArray = Array.from(resultNodes.values()).map(c => ({
+      ...c,
+      platformSources: Array.from(c.platformSources)
+    }))
+
+    // Sort by jobs count descending
+    finalArray.sort((a, b) => b.jobs.length - a.jobs.length)
+
+    // Handle Search Query
+    const queryParams = getQuery(event)
+    const page = parseInt(queryParams.page as string) || 1
+    const pageSize = parseInt(queryParams.pageSize as string) || 20
+    const searchStr = (queryParams.query as string || '').toLowerCase()
+
+    if (searchStr) {
+      finalArray = finalArray.filter(c => c.companyName.toLowerCase().includes(searchStr))
+    }
+
+    const total = finalArray.length
+    const startIndex = (page - 1) * pageSize
+    const paginatedArray = finalArray.slice(startIndex, startIndex + pageSize)
+
+    return {
+      success: true,
+      data: paginatedArray,
+      total
+    }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
