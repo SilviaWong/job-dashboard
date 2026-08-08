@@ -6,6 +6,9 @@ const currentDir = dirname(fileURLToPath(import.meta.url))
 const isCloudflare = process.env.CF_PAGES === '1' || process.env.NITRO_PRESET === 'cloudflare-pages' || process.env.USE_D1 === 'true'
 
 export default defineNuxtConfig({
+  nitro: {
+    experimental: { wasm: true }
+  },
   compatibilityDate: '2025-07-15',
   
   alias: {
