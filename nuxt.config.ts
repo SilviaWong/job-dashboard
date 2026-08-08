@@ -3,7 +3,7 @@ const isCloudflare = process.env.CF_PAGES === '1' || process.env.NITRO_PRESET ==
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
-  
+
   // 核心修复逻辑：如果是 Cloudflare 环境，强制把 Prisma 替换为无 Node 依赖的 edge 版本
   alias: isCloudflare ? {
     '@prisma/client': '@prisma/client/edge'
