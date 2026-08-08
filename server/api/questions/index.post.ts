@@ -1,8 +1,7 @@
-import { PrismaClient } from '@prisma/client'
-
-const prisma = new PrismaClient()
+import { getPrisma } from '#prisma'
 
 export default defineEventHandler(async (event) => {
+  const prisma = getPrisma(event)
   try {
     const body = await readBody(event)
     const { serialNo, title, themeCategory, subCategory, tags, answer } = body

@@ -1,8 +1,7 @@
-import { PrismaClient } from '@prisma/client'
-
-const prisma = new PrismaClient()
+import { getPrisma } from '#prisma'
 
 export default defineEventHandler(async (event) => {
+  const prisma = getPrisma(event)
   const query = getQuery(event)
   const page = parseInt(query.page as string) || 1
   const pageSize = parseInt(query.pageSize as string) || 20

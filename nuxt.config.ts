@@ -1,13 +1,18 @@
+import { fileURLToPath } from 'url'
+import { dirname, resolve } from 'path'
+const currentDir = dirname(fileURLToPath(import.meta.url))
+
 // 判断当前是否处于 Cloudflare 构建环境
 const isCloudflare = process.env.CF_PAGES === '1' || process.env.NITRO_PRESET === 'cloudflare-pages' || process.env.USE_D1 === 'true'
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
-
-  // 核心修复逻辑：如果是 Cloudflare 环境，强制把 Prisma 替换为无 Node 依赖的 edge 版本
-  alias: isCloudflare ? {
-    '@prisma/client$': '@prisma/client/edge'
-  } : {},
+  
+  alias: {
+    '#prisma': isCloudflare 
+      ? resolve(currentDir, './server/db/prisma-edge.ts')
+      : resolve(currentDir, './server/db/prisma-node.ts')
+  },
 
   devtools: { enabled: true },
   modules: [

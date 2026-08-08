@@ -1,4 +1,4 @@
-import { getPrisma } from '../../utils/prisma'
+import { getPrisma } from '#prisma'
 import { normalizeJobData } from '../../utils/jobNormalizer'
 
 export default defineEventHandler(async (event) => {

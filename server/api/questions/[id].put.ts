@@ -1,8 +1,7 @@
-import { PrismaClient } from '@prisma/client'
-
-const prisma = new PrismaClient()
+import { getPrisma } from '#prisma'
 
 export default defineEventHandler(async (event) => {
+  const prisma = getPrisma(event)
   const id = getRouterParam(event, 'id')
   if (!id) {
     return { success: false, error: 'Missing question id' }
