@@ -6,7 +6,7 @@ export default defineNuxtConfig({
 
   // 核心修复逻辑：如果是 Cloudflare 环境，强制把 Prisma 替换为无 Node 依赖的 edge 版本
   alias: isCloudflare ? {
-    '@prisma/client': '@prisma/client/edge'
+    '@prisma/client$': '@prisma/client/edge'
   } : {},
 
   devtools: { enabled: true },
