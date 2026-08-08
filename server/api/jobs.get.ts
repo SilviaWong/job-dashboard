@@ -1,7 +1,8 @@
-import prisma from '../utils/prisma'
+import { getPrisma } from '../utils/prisma'
 import { normalizeJobData } from '../utils/jobNormalizer'
 
 export default defineEventHandler(async (event) => {
+  const prisma = getPrisma(event)
   const query = getQuery(event)
   const status = query.status as string || 'normal'
   const filterFavoritesOnly = query.filterFavoritesOnly === 'true'

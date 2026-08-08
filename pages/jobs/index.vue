@@ -78,7 +78,7 @@
 
             <!-- Company -->
             <div class="job-company">
-              <span class="company-link">{{ job.companyFullName || job.normalizedData?.brandName || job.companyName }}</span>
+              <span class="company-link">{{ job.normalizedData?.companyFullName || job.normalizedData?.brandName || job.companyName }}</span>
             </div>
 
             <!-- Tags -->

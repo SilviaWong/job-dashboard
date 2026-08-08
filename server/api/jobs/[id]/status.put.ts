@@ -1,8 +1,9 @@
-import prisma from '../../../utils/prisma'
+import { getPrisma } from '../../../utils/prisma'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
   const body = await readBody(event)
+  const prisma = getPrisma(event)
   
   if (!id || !body.status) {
     return { success: false, message: 'Missing id or status' }

@@ -20,6 +20,11 @@
           <span>企业全景</span>
         </el-menu-item>
         
+        <el-menu-item index="/dashboard">
+          <el-icon><LayoutDashboard /></el-icon>
+          <span>数据看板</span>
+        </el-menu-item>
+        
         <el-menu-item index="/kanban">
           <el-icon><MapPin /></el-icon>
           <span>投递追踪</span>
@@ -59,12 +64,13 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { ClipboardList, Building2, MapPin, Bot, BookOpen, Briefcase, FileText } from 'lucide-vue-next'
+import { ClipboardList, Building2, MapPin, Bot, BookOpen, Briefcase, FileText, LayoutDashboard } from 'lucide-vue-next'
 
 const route = useRoute()
 const activeMenu = computed(() => {
   if (route.path.startsWith('/jobs')) return '/jobs'
   if (route.path.startsWith('/companies')) return '/companies'
+  if (route.path.startsWith('/dashboard')) return '/dashboard'
   if (route.path.startsWith('/kanban')) return '/kanban'
   if (route.path.startsWith('/ai')) return '/ai'
   if (route.path.startsWith('/questions')) return '/questions'

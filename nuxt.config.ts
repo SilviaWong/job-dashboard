@@ -8,6 +8,11 @@ export default defineNuxtConfig({
   elementPlus: {
     // Custom configuration for element plus if needed
   },
+  vite: {
+    optimizeDeps: {
+      exclude: ['@prisma/client', '@prisma/adapter-d1']
+    }
+  },
   routeRules: {
     '/api/**': {
       cors: true,

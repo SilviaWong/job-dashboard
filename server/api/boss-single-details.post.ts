@@ -1,6 +1,8 @@
-import prisma from '../utils/prisma'
+import { getPrisma } from '../utils/prisma'
 
+// 处理从boss直聘接收到的职位详情数据
 export default defineEventHandler(async (event) => {
+  const prisma = getPrisma(event)
   const body = await readBody(event)
 
   if (!Array.isArray(body)) {
@@ -9,7 +11,7 @@ export default defineEventHandler(async (event) => {
 
   const upsertPromises = body.map(async (detail) => {
     // 提取 jobId
-    let jobId = detail['职位ID'] || detail.encryptJobId || detail.jobId || detail.jobInfo?.encryptId || detail.zpData?.jobInfo?.encryptId
+    let jobId = detail['职位ID'] || ''
 
     if (!jobId) {
       console.warn('Cannot find jobId in boss single detail:', detail)
@@ -17,17 +19,22 @@ export default defineEventHandler(async (event) => {
     }
 
     const stringifiedData = JSON.stringify(detail)
+    const createdAt = new Date()
+    const updatedAt = new Date()
 
     const result = await prisma.bossSingleDetail.upsert({
       where: {
         jobId: String(jobId)
       },
       update: {
-        rawData: stringifiedData
+        rawData: stringifiedData,
+        updatedAt: updatedAt
       },
       create: {
         jobId: String(jobId),
-        rawData: stringifiedData
+        rawData: stringifiedData,
+        createdAt: createdAt,
+        updatedAt: updatedAt
       }
     })
 
@@ -36,32 +43,26 @@ export default defineEventHandler(async (event) => {
 
     // 如果公司ID不为空，则更新相关表中的公司全称字段
     if (companyId && companyFullName) {
+      // 更新job表的companyFullName字段
       await prisma.job.updateMany({
         where: { jobId: String(jobId), platform: 'Boss直聘' },
-        data: { companyFullName: companyFullName }
+        data: {
+          companyFullName: companyFullName,
+          updatedAt: updatedAt
+        }
       })
 
+      // 查询company表中的公司数据并更新
       const companies = await prisma.company.findMany({
         where: { companyId: String(companyId), sourcePlatform: 'Boss直聘' }
       })
 
       for (const company of companies) {
-        let updatedRawData = company.rawData
-        if (updatedRawData) {
-          try {
-            const parsed = JSON.parse(updatedRawData)
-            parsed.companyFullName = companyFullName
-            updatedRawData = JSON.stringify(parsed)
-          } catch (e) {
-            console.error('Failed to parse company rawData for update:', e)
-          }
-        }
-
         await prisma.company.update({
           where: { id: company.id },
           data: {
             companyFullName: companyFullName,
-            rawData: updatedRawData
+            updatedAt: updatedAt
           }
         })
       }

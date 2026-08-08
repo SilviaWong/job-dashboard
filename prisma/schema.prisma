@@ -11,18 +11,19 @@ datasource db {
 }
 
 model Job {
-  id          String   @id @default(uuid())
-  jobId       String
-  title       String
-  companyName String
+  id              String   @id @default(uuid())
+  jobId           String
+  title           String
+  companyName     String
   companyFullName String?
-  salary      String
-  location    String
-  platform    String
-  status       String   @default("normal")
-  rawData      String
-  rawData2     String?
-  dataSource   String   @default("unknown")
+  companyId       String?
+  salary          String
+  location        String
+  platform        String
+  status          String   @default("normal")
+  rawData         String
+  rawData2        String?
+  dataSource      String   @default("unknown")
   
   // 与职位强绑定的状态
   isFavorited  Boolean  @default(false)

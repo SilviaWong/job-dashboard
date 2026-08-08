@@ -1,7 +1,9 @@
-import prisma from '../../utils/prisma'
+import { getPrisma } from '../../utils/prisma'
 import { normalizeJobData } from '../../utils/jobNormalizer'
 
 export default defineEventHandler(async (event) => {
+  const prisma = getPrisma(event)
+
   try {
     // 1. 获取所有存在并且未隐藏的 Job（排除黑名单我们可以在前端或者这里做，这里简单起见抓取所有正常数据）
     const jobs = await prisma.job.findMany({
@@ -15,6 +17,7 @@ export default defineEventHandler(async (event) => {
         jobId: true,
         title: true,
         companyName: true,
+        companyFullName: true,
         salary: true,
         location: true,
         platform: true,
@@ -27,17 +30,20 @@ export default defineEventHandler(async (event) => {
     })
 
     const jobIds = jobs.map(j => j.jobId)
+    // 1.1 查询 ai_job_result 数据表，获取ai诊断数据
     const aiResults = await prisma.aiJobResult.findMany({
       where: { jobId: { in: jobIds } }
     })
     const aiResultMap = Object.fromEntries(aiResults.map(a => [a.jobId, a]))
 
+    // 1.2 查询 blacklisted_company 数据表，获取黑名单公司
     const blacklisted = await prisma.blacklistedCompany.findMany({
       select: { companyName: true }
     })
     const blacklistedSet = new Set(blacklisted.map(b => b.companyName))
 
     const bossJobIds = jobs.filter(j => j.platform === 'Boss直聘').map(j => j.jobId)
+    // 1.3 查询 boss_single_detail 数据表，获取boss直聘详情数据
     let bossSingleDetailsMap: Record<string, any> = {}
     if (bossJobIds.length > 0) {
       const bossDetails = await prisma.bossSingleDetail.findMany({
@@ -46,22 +52,76 @@ export default defineEventHandler(async (event) => {
       bossSingleDetailsMap = Object.fromEntries(bossDetails.map(d => [d.jobId, d]))
     }
 
-    // 2. 获取所有 Company 的详细信息（如福利、行业等）
+    // 2. 构建并查集 (DSU) 合并公司名称和全称相同的记录
+    const dsu = {
+      parent: {} as Record<string, string>,
+      find(i: string): string {
+        if (this.parent[i] === undefined) {
+          this.parent[i] = i;
+        }
+        if (this.parent[i] === i) {
+          return i;
+        }
+        return this.parent[i] = this.find(this.parent[i]);
+      },
+      union(i: string, j: string) {
+        const rootI = this.find(i);
+        const rootJ = this.find(j);
+        if (rootI !== rootJ) {
+          // 尽量用长名字做 root
+          if (rootI.length > rootJ.length) {
+            this.parent[rootJ] = rootI;
+          } else {
+            this.parent[rootI] = rootJ;
+          }
+        }
+      }
+    };
+
+    for (const job of jobs) {
+      if (job.companyName && job.companyName !== '未知公司') {
+        if (job.companyFullName && job.companyFullName !== '未知公司') {
+          dsu.union(job.companyName, job.companyFullName);
+        }
+      }
+    }
+
+    // 获取所有 Company 的详细信息，并加入并查集
     const companiesData = await prisma.company.findMany()
+    for (const c of companiesData) {
+      if (c.companyName && c.companyName !== '未知公司') {
+        if (c.companyFullName && c.companyFullName !== '未知公司') {
+          dsu.union(c.companyName, c.companyFullName);
+        }
+      }
+    }
+
     const companyMap = new Map()
     for (const c of companiesData) {
-      if (!companyMap.has(c.companyName)) {
-        companyMap.set(c.companyName, {
-          companyName: c.companyName,
+      if (!c.companyName || c.companyName === '未知公司') continue;
+      const canonicalName = dsu.find(c.companyName);
+      if (!companyMap.has(canonicalName)) {
+        companyMap.set(canonicalName, {
+          companyName: canonicalName,
           sourcePlatform: c.sourcePlatform,
           companyId: c.companyId,
           rawData: c.rawData ? JSON.parse(c.rawData) : null,
           rawData2: c.rawData2 ? JSON.parse(c.rawData2) : null,
         })
+      } else {
+        const existing = companyMap.get(canonicalName);
+        if (!existing.rawData && c.rawData) {
+          existing.rawData = JSON.parse(c.rawData);
+          existing.sourcePlatform = c.sourcePlatform;
+          existing.companyId = c.companyId;
+        }
+        if (!existing.rawData2 && c.rawData2) {
+          existing.rawData2 = JSON.parse(c.rawData2);
+        }
       }
     }
 
-    // 3. 聚合：以 companyName 为 Key
+    // 3. 聚合：以 Canonical companyName 为 Key
     const resultNodes = new Map()
 
     for (const job of jobs) {
@@ -69,11 +129,11 @@ export default defineEventHandler(async (event) => {
       const platform = job.platform
       if (!compName || compName === '未知公司' || !platform) continue
 
-      const nodeKey = compName
+      const nodeKey = dsu.find(compName)
 
       if (!resultNodes.has(nodeKey)) {
         // 如果在 Company 表里有该公司记录，就拿过来用；如果没有，就建一个只有名称的壳
-        const baseCompany = companyMap.get(nodeKey) || { companyName: compName, sourcePlatform: platform, rawData: null }
+        const baseCompany = companyMap.get(nodeKey) || { companyName: nodeKey, sourcePlatform: platform, rawData: null }
 
         resultNodes.set(nodeKey, {
           ...baseCompany,
@@ -106,17 +166,9 @@ export default defineEventHandler(async (event) => {
         }
       }
 
-      let experience = '不限'
-      let degree = '不限'
-      if (job.rawData) {
-        const raw = JSON.parse(job.rawData)
-        experience = raw['工作经验'] || raw.jobExperience || '不限'
-        degree = raw['学历要求'] || raw.jobDegree || '不限'
-      }
-
       // Add to jobs array
-      const parsedRawData = job.rawData ? JSON.parse(job.rawData) : {}
-      let parsedRawData2 = job.rawData2 ? JSON.parse(job.rawData2) : {}
+      const parsedRawData = job.rawData ? JSON.parse(job.rawData) : null
+      let parsedRawData2 = job.rawData2 ? JSON.parse(job.rawData2) : null
       let parsedBossSingleDetail = null;
       if (job.platform === 'Boss直聘' && bossSingleDetailsMap[job.jobId]) {
         try {
@@ -138,7 +190,7 @@ export default defineEventHandler(async (event) => {
         normalizedData: normalizedData,
         aiResult: aiResultMap[job.jobId] || null,
         company: companyWithoutRawData,
-        isBlacklisted: blacklistedSet.has(job.companyName)
+        isBlacklisted: blacklistedSet.has(job.companyName) || (job.companyFullName && blacklistedSet.has(job.companyFullName)) || blacklistedSet.has(nodeKey)
       })
     }
 
@@ -158,7 +210,13 @@ export default defineEventHandler(async (event) => {
     const searchStr = (queryParams.query as string || '').toLowerCase()
 
     if (searchStr) {
-      finalArray = finalArray.filter(c => c.companyName.toLowerCase().includes(searchStr))
+      finalArray = finalArray.filter(c =>
+        c.companyName.toLowerCase().includes(searchStr) ||
+        c.jobs.some((j: any) =>
+          (j.companyName && j.companyName.toLowerCase().includes(searchStr)) ||
+          (j.companyFullName && j.companyFullName.toLowerCase().includes(searchStr))
+        )
+      )
     }
 
     const total = finalArray.length

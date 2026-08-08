@@ -1,4 +1,4 @@
-import prisma from '../utils/prisma'
+import { getPrisma } from '../utils/prisma'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)

@@ -1,6 +1,7 @@
-import prisma from '../../utils/prisma'
+import { getPrisma } from '../../utils/prisma'
 
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
+  const prisma = getPrisma(event)
   try {
     let settings = await prisma.aiSettings.findUnique({
       where: { id: 'default' }

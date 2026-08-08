@@ -1,8 +1,9 @@
-import prisma from '../../utils/prisma'
+import { getPrisma } from '../../utils/prisma'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
-  
+  const prisma = getPrisma(event)
+
   try {
     const updateData: any = {}
     if (body.activeProfileId !== undefined) updateData.activeProfileId = body.activeProfileId

@@ -96,19 +96,27 @@
                   </div>
                   
                   <div class="job-card-info">
-                    {{ job.location }} | {{ job.experience }} | {{ job.degree }}
+                    {{ [job.normalizedData?.city, job.normalizedData?.area].filter(Boolean).join('·') }} | {{ job.normalizedData?.experience || '不限' }} | {{ job.normalizedData?.degree || '不限' }}
                   </div>
                   
                   <div class="job-card-tags" v-if="(job.tags && job.tags.length > 0) || job.status === 'expired' || job.status === 'closed' || job.isHidden || job.normalizedData?.isHeadhunter">
                     <el-tag v-if="job.status === 'expired' || job.status === 'closed'" size="small" type="danger" effect="dark" style="border: none; padding: 0 6px; height: 20px; line-height: 20px;">失效</el-tag>
                     <el-tag v-if="job.isHidden" size="small" type="info" effect="dark" style="border: none; padding: 0 6px; height: 20px; line-height: 20px;">不合适</el-tag>
-                    <el-tag v-if="job.normalizedData?.isHeadhunter" size="small" color="#fce4ec" style="color: #c2185b; border: 1px solid #f8bbd0; padding: 0 6px; height: 20px; line-height: 20px;">猎头/代招</el-tag>
+                    <el-tag v-if="job.normalizedData?.isHeadhunter" size="small" color="#fce4ec" style="color: #c2185b; border: 1px solid #f8bbd0; padding: 0 6px; height: 20px; line-height: 20px;">
+                      代招公司<span v-if="job.normalizedData?.clientCompanyName">：{{ job.normalizedData.clientCompanyName }}</span>
+                    </el-tag>
                     <span class="job-tag" v-for="(t, idx) in job.tags" :key="idx">{{ t }}</span>
                   </div>
                   
                   <div class="job-card-footer">
-                    <span class="job-date">{{ formatDate(job.updatedAt) }}</span>
-                    <el-tag size="small" :type="getPlatformType(job.platform)">{{ job.platform }}</el-tag>
+                    <div class="job-hr">
+                      <span v-if="job.normalizedData?.hrName">{{ job.normalizedData.hrName }}</span>
+                      <span v-if="job.normalizedData?.hrPosition">{{ job.normalizedData.hrName ? ' · ' : '' }}{{ job.normalizedData.hrPosition }}</span>
+                    </div>
+                    <div class="job-meta" style="display: flex; align-items: center; gap: 8px;">
+                      <span class="job-date">{{ formatDate(job.normalizedData?.updateDate) }}</span>
+                      <el-tag size="small" :type="getPlatformType(job.platform)">{{ job.platform }}</el-tag>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -397,6 +405,14 @@ onUnmounted(() => {
   align-items: center;
   padding-top: 10px;
   border-top: 1px solid #f1f5f9;
+}
+.job-hr {
+  font-size: 13px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 55%;
 }
 .job-date {
   font-size: 12px;

@@ -1,7 +1,8 @@
-import prisma from '../utils/prisma'
+import { getPrisma } from '../utils/prisma'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
+  const prisma = getPrisma(event)
 
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return { success: false, message: 'Invalid data format. Expected an object (Record<string, any>).' }

@@ -1,0 +1,7 @@
+name = "job-dashboard"
+compatibility_date = "2026-08-07"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "job-dashboard-db"
+database_id = "64478bab-ed0f-454c-a662-68f9194ff6d5"

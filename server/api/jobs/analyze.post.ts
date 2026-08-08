@@ -1,4 +1,4 @@
-import prisma from '../../utils/prisma'
+import { getPrisma } from '../../utils/prisma'
 
 const AI_SCORING_PROMPT = `
 你现在是一位严格的招聘评估专家。请对比求职者简历与职位JD，严格按照以下维度评分(0-100分)：
@@ -38,6 +38,8 @@ export default defineEventHandler(async (event) => {
   if (!jobId) {
     return { success: false, error: '缺少 jobId' }
   }
+  
+  const prisma = getPrisma(event)
 
   try {
     // 1. Fetch Job
