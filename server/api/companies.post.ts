@@ -1,4 +1,4 @@
-import { getPrisma } from '../utils/prisma'
+import { getPrisma } from '#prisma'
 import { getCompanyProcessor } from '../utils/companyProcessors'
 
 export default defineEventHandler(async (event) => {

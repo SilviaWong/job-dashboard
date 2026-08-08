@@ -1,4 +1,4 @@
-import { getPrisma } from '../utils/prisma'
+import { getPrisma } from '#prisma'
 import { getJobProcessor } from '../utils/jobExtractors'
 
 export default defineEventHandler(async (event) => {

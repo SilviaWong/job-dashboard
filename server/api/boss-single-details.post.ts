@@ -1,4 +1,4 @@
-import { getPrisma } from '../utils/prisma'
+import { getPrisma } from '#prisma'
 
 // 处理从boss直聘接收到的职位详情数据
 export default defineEventHandler(async (event) => {
