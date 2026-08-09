@@ -43,7 +43,7 @@ export default defineEventHandler(async (event) => {
 
   try {
     // 1. Fetch Job
-    const job = await prisma.job.findUnique({
+    const job = await prisma.job.findFirst({
       where: { jobId }
     })
     
