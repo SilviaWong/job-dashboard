@@ -9,17 +9,18 @@ export default defineEventHandler(async (event) => {
 
   try {
     const body = await readBody(event)
-    const { serialNo, title, themeCategory, subCategory, tags, answer } = body
+    const { title, domain, categoryTags, corePoints, answerKey, aiAnswer, tags } = body
 
     const data: any = {}
-    if (serialNo !== undefined) data.serialNo = serialNo ? parseInt(serialNo) : null
     if (title !== undefined) data.title = title
-    if (themeCategory !== undefined) data.themeCategory = themeCategory
-    if (subCategory !== undefined) data.subCategory = subCategory
+    if (domain !== undefined) data.domain = domain
+    if (categoryTags !== undefined) data.categoryTags = categoryTags
+    if (corePoints !== undefined) data.corePoints = corePoints
     if (tags !== undefined) data.tags = tags ? JSON.stringify(tags) : null
-    if (answer !== undefined) data.answer = answer
+    if (answerKey !== undefined) data.answerKey = answerKey
+    if (aiAnswer !== undefined) data.aiAnswer = aiAnswer
 
-    const question = await prisma.questionBank.update({
+    const question = await prisma.standardQuestion.update({
       where: { id },
       data
     })

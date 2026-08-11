@@ -87,20 +87,38 @@
                 </div>
               </div>
 
-              <div class="ai-section">
+              <div class="ai-section" style="margin-bottom: 20px;">
                 <h4><el-icon><Lightbulb /></el-icon> 详细分析</h4>
                 <div class="ai-analysis-content" v-html="formatAiAnalysis(job.aiResult.resultText)"></div>
               </div>
-
-              <div class="ai-section generator-section">
-                <h4><el-icon><Sparkles /></el-icon> AI 自我介绍生成</h4>
-                <p class="generator-desc">让 AI 为您生成一份专业且有针对性的打招呼语，提高回复率。</p>
-                <el-button type="primary" plain class="generate-btn"><el-icon><Rocket /></el-icon>&nbsp;生成自我介绍</el-button>
-              </div>
             </template>
             
-            <div v-else class="ai-empty">
-              <el-empty description="暂无 AI 分析结果" :image-size="80" />
+            <div v-else class="ai-empty" style="margin-bottom: 20px; background: white; border-radius: 12px; border: 1px solid #e2e8f0; padding: 20px;">
+              <el-empty description="暂无综合匹配度分析，可点击下方按钮独立生成预测" :image-size="80" />
+            </div>
+
+            <div class="ai-section generator-section" style="margin-bottom: 20px;">
+              <h4><el-icon><Target /></el-icon> 🎯 面试题目预测</h4>
+              <div v-if="job.aiResult && job.aiResult.predictedQuestions" class="ai-analysis-content" v-html="formatAiAnalysis(job.aiResult.predictedQuestions)"></div>
+              <template v-else>
+                <p class="generator-desc">结合岗位 JD 和您的简历，预测可能被问到的高频面试题。</p>
+                <el-button type="warning" plain class="generate-btn" :loading="predicting" @click="generatePredictions"><el-icon><Sparkles /></el-icon>&nbsp;一键生成面试预测</el-button>
+              </template>
+            </div>
+
+            <div class="ai-section generator-section">
+              <h4><el-icon><Sparkles /></el-icon> AI 自我介绍生成</h4>
+              <div v-if="job.aiResult && job.aiResult.intro">
+                <div class="ai-analysis-content" v-html="formatAiAnalysis(job.aiResult.intro)"></div>
+                <div style="margin-top: 15px; display: flex; gap: 10px;">
+                  <el-button size="small" @click="copyIntro"><el-icon><Copy /></el-icon>&nbsp;复制话术</el-button>
+                  <el-button size="small" type="primary" plain :loading="generatingGreeting" @click="generateGreeting"><el-icon><RefreshCw /></el-icon>&nbsp;重新生成</el-button>
+                </div>
+              </div>
+              <template v-else>
+                <p class="generator-desc">让 AI 为您生成一份专业且有针对性的打招呼语，提高回复率。</p>
+                <el-button type="primary" plain class="generate-btn" :loading="generatingGreeting" @click="generateGreeting"><el-icon><Rocket /></el-icon>&nbsp;一键生成自我介绍</el-button>
+              </template>
             </div>
           </div>
         </div>
@@ -112,13 +130,74 @@
 <script setup>
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Building, MapPin, Map, Briefcase, GraduationCap, Globe, BarChart, Gift, FileText, Lightbulb, Sparkles, Rocket, ExternalLink, Tags, Ban } from 'lucide-vue-next'
+import { Building, MapPin, Map, Briefcase, GraduationCap, Globe, BarChart, Gift, FileText, Lightbulb, Sparkles, Rocket, ExternalLink, Tags, Ban, Target, Copy, RefreshCw } from 'lucide-vue-next'
 
 const emit = defineEmits(['status-changed'])
 
 const visible = ref(false)
 const job = ref(null)
 const marking = ref(false)
+const predicting = ref(false)
+const generatingGreeting = ref(false)
+
+const generatePredictions = async () => {
+  if (!job.value || !job.value.jobId) return
+  
+  predicting.value = true
+  try {
+    const res = await $fetch('/api/jobs/predict-questions', {
+      method: 'POST',
+      body: { jobId: job.value.jobId }
+    })
+    
+    if (res && res.success && res.data) {
+      ElMessage.success('面试预测生成成功！')
+      job.value.aiResult = res.data
+    } else {
+      ElMessage.error(res?.error || '生成失败，请检查配置')
+    }
+  } catch (error) {
+    console.error('Prediction failed:', error)
+    ElMessage.error('服务调用异常')
+  } finally {
+    predicting.value = false
+  }
+}
+
+const generateGreeting = async () => {
+  if (!job.value || !job.value.jobId) return
+  
+  generatingGreeting.value = true
+  try {
+    const res = await $fetch('/api/jobs/generate-greeting', {
+      method: 'POST',
+      body: { jobId: job.value.jobId }
+    })
+    
+    if (res && res.success && res.data) {
+      ElMessage.success('打招呼语生成成功！')
+      job.value.aiResult = res.data
+    } else {
+      ElMessage.error(res?.error || '生成失败，请检查配置')
+    }
+  } catch (error) {
+    console.error('Greeting generation failed:', error)
+    ElMessage.error('服务调用异常')
+  } finally {
+    generatingGreeting.value = false
+  }
+}
+
+const copyIntro = async () => {
+  if (!job.value?.aiResult?.intro) return
+  try {
+    await navigator.clipboard.writeText(job.value.aiResult.intro)
+    ElMessage.success('已复制到剪贴板')
+  } catch (err) {
+    console.error('Copy failed:', err)
+    ElMessage.error('复制失败')
+  }
+}
 
 const open = (jobData) => {
   job.value = jobData

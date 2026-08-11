@@ -4,20 +4,35 @@ export default defineEventHandler(async (event) => {
   const prisma = getPrisma(event)
   try {
     const body = await readBody(event)
-    const { serialNo, title, themeCategory, subCategory, tags, answer } = body
+    const { title, domain, categoryTags, corePoints, answerKey, aiAnswer, tags, variants } = body
 
     if (!title) {
       return { success: false, error: 'Title is required' }
     }
 
-    const question = await prisma.questionBank.create({
-      data: {
-        serialNo: serialNo ? parseInt(serialNo) : null,
-        title,
-        themeCategory,
-        subCategory,
-        tags: tags ? JSON.stringify(tags) : null,
-        answer
+    const data: any = {
+      title,
+      domain,
+      categoryTags,
+      corePoints,
+      answerKey,
+      aiAnswer,
+      tags: tags ? JSON.stringify(tags) : null
+    }
+    
+    if (variants && Array.isArray(variants) && variants.length > 0) {
+      data.variants = {
+        create: variants.map((v: any) => ({
+          serialNo: v.serialNo ? parseInt(v.serialNo) : null,
+          title: v.title
+        }))
+      }
+    }
+
+    const question = await prisma.standardQuestion.create({
+      data,
+      include: {
+        variants: true
       }
     })
 

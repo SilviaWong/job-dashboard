@@ -140,7 +140,7 @@ function normalize51Job(job: any, raw: any, raw2: any, companyInfo?: any, jobDet
     publishDate: fallback.issueDateString || info.issueDate || '',
     updateDate: fallback.updateDateTime || '',
     spiderDate: fallback['创建时间'] || fallback['抓取时间'] || '',
-    companyIndustry: fallback.coIndustryAllText || info.coIndustryAllText || '',
+    companyIndustry: fallback.coIndustryAllText || info.coIndustryAllText || [fallback.industryType1Str, fallback.industryType2Str].filter(Boolean).join(' ') || '',
     companyStage: fallback.companyTypeString || '', // 51job typically provides company type instead of financing stage
     companyScale: fallback.companySizeString || '',
     brandName: fallback.companyName || info.coName || fallback.companyFullName || job.companyName || '',

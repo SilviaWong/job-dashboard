@@ -6,6 +6,7 @@ export default defineEventHandler(async (event) => {
   const page = parseInt(query.page as string) || 1
   const pageSize = parseInt(query.pageSize as string) || 20
   const keyword = query.keyword as string
+  const domain = query.domain as string
 
   try {
     const where: any = {}
@@ -13,17 +14,28 @@ export default defineEventHandler(async (event) => {
     if (keyword) {
       where.OR = [
         { title: { contains: keyword } },
-        { tags: { contains: keyword } }
+        { tags: { contains: keyword } },
+        { corePoints: { contains: keyword } },
+        { variants: { some: { title: { contains: keyword } } } }
       ]
     }
-
-    const total = await prisma.questionBank.count({ where })
     
-    const questions = await prisma.questionBank.findMany({
+    if (domain) {
+      where.domain = domain
+    }
+
+    const total = await prisma.standardQuestion.count({ where })
+    
+    const questions = await prisma.standardQuestion.findMany({
       where,
-      orderBy: { serialNo: 'asc' },
+      orderBy: { createdAt: 'desc' },
       skip: (page - 1) * pageSize,
-      take: pageSize
+      take: pageSize,
+      include: {
+        variants: {
+          orderBy: { serialNo: 'asc' }
+        }
+      }
     })
 
     return {

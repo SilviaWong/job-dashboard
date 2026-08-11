@@ -64,16 +64,12 @@ export default defineEventHandler(async (event) => {
         }
         return this.parent[i] = this.find(this.parent[i]);
       },
-      union(i: string, j: string) {
-        const rootI = this.find(i);
-        const rootJ = this.find(j);
-        if (rootI !== rootJ) {
-          // 尽量用长名字做 root
-          if (rootI.length > rootJ.length) {
-            this.parent[rootJ] = rootI;
-          } else {
-            this.parent[rootI] = rootJ;
-          }
+      union(alias: string, fullName: string) {
+        const rootAlias = this.find(alias);
+        const rootFullName = this.find(fullName);
+        if (rootAlias !== rootFullName) {
+          // 强制使用 fullName 所在的集合作为根节点
+          this.parent[rootAlias] = rootFullName;
         }
       }
     };

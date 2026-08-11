@@ -45,6 +45,12 @@
           </div>
           
           <div class="actions">
+            <el-button v-if="!batchAnalyzing" type="success" size="small" @click="handleBatchAiDiagnosis" :disabled="loading">
+              <el-icon><Bot /></el-icon>&nbsp;批量 AI 诊断
+            </el-button>
+            <el-button v-else type="danger" size="small" @click="cancelBatchAiDiagnosis">
+              <el-icon><Loader2 class="is-loading" /></el-icon>&nbsp;取消诊断
+            </el-button>
             <el-button type="primary" size="small" @click="() => fetchJobs(false)" :loading="loading">
               刷新数据
             </el-button>
@@ -93,7 +99,6 @@
               </template>
 
               <!-- Regular info tags -->
-              <span class="tag-item" style="background-color: #fce4ec; color: #c2185b; border: 1px solid #f8bbd0;" v-if="job.normalizedData?.isHeadhunter">猎头/代招</span>
               <span class="tag-item">{{ job.platform }}</span>
               <span class="tag-item" v-if="job.normalizedData?.city || job.location">
                 {{ [job.normalizedData?.city, job.normalizedData?.area, job.normalizedData?.businessDistrict].filter(Boolean).join('·') }}
@@ -107,6 +112,8 @@
               <template v-else-if="job.normalizedData?.welfareList?.length">
                 <span class="tag-item" v-for="(tag, idx) in job.normalizedData.welfareList.slice(0, 5)" :key="idx">{{ tag }}</span>
               </template>
+              <!-- 猎头/代招标签，如果前面有其他标签，加一点间隔 -->
+              <span class="tag-item" style="background-color: #fce4ec; color: #c2185b; border: 1px solid #f8bbd0;" v-if="job.normalizedData?.isHeadhunter">猎头/代招</span> 
             </div>
 
             <!-- Meta Info -->
@@ -124,7 +131,7 @@
                 <el-button round size="small" :color="job.isFavorited ? '#f39c12' : '#f1c40f'" style="color: #fff;" @click.stop>{{ job.isFavorited ? '⭐ 已收藏' : '☆ 收藏' }}</el-button>
                 <el-button round size="small" color="#e74c3c" style="color: #fff;" @click.stop="openUnsuitableModal(job)">👎 不合适</el-button>
                 <el-button round size="small" color="#95a5a6" style="color: #fff;" @click.stop>{{ job.isBlacklisted ? '⛔ 已拉黑' : '⛔ 拉黑' }}</el-button>
-                <el-button round size="small" color="#e74c3c" style="color: #fff;" @click.stop>删除</el-button>
+                <el-button round size="small" color="#e74c3c" style="color: #fff;" @click.stop="handleDeleteJob(job)">删除</el-button>
               </div>
               <div class="footer-right">
                 <el-button round size="small" color="#27ae60" style="color: #fff;" @click.stop>📅 面试</el-button>
@@ -136,7 +143,7 @@
                   :loading="analyzingId === job.jobId"
                   @click.stop="handleAiDiagnosis(job)"
                 >🤖 AI 诊断</el-button>
-                <el-button round size="small" color="#3498db" style="color: #fff;" @click.stop="viewDetails(job)">详情 🔗</el-button>
+                <el-button round size="small" color="#3498db" style="color: #fff;" @click.stop="openOriginalUrl(job)">详情 🔗</el-button>
               </div>
             </div>
           </div>
@@ -205,12 +212,14 @@
 
 <script setup>
 import { shallowRef, ref, onMounted, onUnmounted, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Star, Eye, Ban, ThumbsDown, Trash2, Calendar, Bot, ExternalLink, Loader2 } from 'lucide-vue-next'
 
 const jobList = shallowRef([])
 const loading = ref(false)
 const analyzingId = ref(null)
+const batchAnalyzing = ref(false)
+const batchCancelled = ref(false)
 
 const page = ref(1)
 const pageSize = ref(20)
@@ -283,6 +292,117 @@ const viewDetails = (row) => {
   if (jobDetailDrawerRef.value) {
     jobDetailDrawerRef.value.open(row)
   }
+}
+
+const openOriginalUrl = (job) => {
+  const url = job.normalizedData?.jobUrl
+  if (url) {
+    window.open(url, '_blank', 'noopener,noreferrer')
+  } else {
+    ElMessage.warning('未找到原网页链接')
+  }
+}
+
+const handleDeleteJob = async (job) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除职位 "${job.jobName}" 吗？此操作将彻底删除数据，不可恢复。`,
+      '物理删除确认',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+    
+    const res = await $fetch(`/api/jobs/${job.id}`, {
+      method: 'DELETE'
+    })
+    
+    if (res && res.success) {
+      ElMessage.success('删除成功')
+      jobList.value = jobList.value.filter(item => item.id !== job.id)
+    } else {
+      ElMessage.error(res?.error || res?.message || '删除失败')
+    }
+  } catch (e) {
+    if (e !== 'cancel') {
+      console.error(e)
+      ElMessage.error('删除操作出错')
+    }
+  }
+}
+
+const handleBatchAiDiagnosis = async () => {
+  if (analyzingId.value || batchAnalyzing.value) return
+  
+  const jobsToAnalyze = jobList.value.filter(job => !job.aiResult || job.aiResult.score === null || job.aiResult.score === undefined)
+  
+  if (jobsToAnalyze.length === 0) {
+    ElMessage.info('当前列表中的职位都已诊断过啦！')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `当前列表有 ${jobsToAnalyze.length} 个职位未诊断，是否开始批量诊断？（将按顺序逐个进行，可能需要较长时间）`,
+      '批量 AI 诊断',
+      {
+        confirmButtonText: '开始诊断',
+        cancelButtonText: '取消',
+        type: 'info',
+      }
+    )
+  } catch {
+    return
+  }
+
+  batchAnalyzing.value = true
+  batchCancelled.value = false
+  let successCount = 0
+  let failCount = 0
+
+  for (const job of jobsToAnalyze) {
+    if (batchCancelled.value) break 
+    
+    analyzingId.value = job.jobId
+    try {
+      const res = await $fetch('/api/jobs/analyze', {
+        method: 'POST',
+        body: { jobId: job.jobId }
+      })
+      
+      if (res && res.success && res.data) {
+        job.aiResult = res.data
+        successCount++
+      } else {
+        failCount++
+      }
+    } catch (e) {
+      console.error(e)
+      failCount++
+    } finally {
+      analyzingId.value = null
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 1500))
+  }
+  
+  batchAnalyzing.value = false
+  if (batchCancelled.value) {
+    ElMessage.info(`批量诊断已取消。本次成功: ${successCount}，失败: ${failCount}。`)
+  } else if (failCount === 0) {
+    ElMessage.success(`批量诊断完成！成功诊断 ${successCount} 个职位。`)
+  } else {
+    ElMessage.warning(`批量诊断结束。成功: ${successCount}，失败: ${failCount}。`)
+  }
+}
+
+const cancelBatchAiDiagnosis = () => {
+  if (!batchAnalyzing.value) return
+  batchCancelled.value = true
+  ElMessage.warning('正在取消，等待当前任务结束后停止...')
 }
 
 const handleAiDiagnosis = async (job) => {

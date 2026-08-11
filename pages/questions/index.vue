@@ -13,71 +13,113 @@
             题库管理
           </h2>
           <div class="header-actions">
+            <el-select
+              v-model="searchDomain"
+              placeholder="按技术领域筛选..."
+              clearable
+              style="width: 180px"
+              @change="handleSearch"
+            >
+              <!-- TODO: 可以改成动态从后端获取领域列表，这里为了演示简单写死几个，或者只依赖输入 -->
+              <el-option label="Java基础" value="Java基础" />
+              <el-option label="Spring" value="Spring" />
+              <el-option label="数据库" value="数据库" />
+              <el-option label="前端" value="前端" />
+              <el-option label="其他" value="其他" />
+            </el-select>
             <el-input
               v-model="searchQuery"
-              placeholder="搜索题干或标签..."
+              placeholder="搜索标准问题或变体题目..."
               style="width: 250px"
               clearable
               @keyup.enter="handleSearch"
               @clear="handleSearch"
             />
-            <el-button color="#28a745" style="color: white; border: none; border-radius: 6px;" @click="handleImportExcel">
-              📥 导入 Excel
-            </el-button>
             <el-button type="primary" style="border: none; border-radius: 6px;" @click="openDialog()">
               ➕ 新增题目
             </el-button>
-            <el-popconfirm title="确定要清空所有题目吗？此操作不可恢复！" @confirm="clearQuestionBank">
-              <template #reference>
-                <el-button color="#dc3545" style="color: white; border: none; border-radius: 6px;">
-                  🗑️ 清空题库
-                </el-button>
-              </template>
-            </el-popconfirm>
           </div>
         </div>
       </template>
 
       <el-table :data="questions" v-loading="loading" style="width: 100%" row-key="id">
-        <el-table-column prop="serialNo" label="序号" width="80" align="center">
-          <template #default="{ row, $index }">
-            {{ row.serialNo || $index + 1 }}
+        <!-- 展开行，显示变体真题和标准答案 -->
+        <el-table-column type="expand">
+          <template #default="{ row }">
+            <div class="expand-content">
+              <div class="core-points-section" style="margin-bottom: 16px;">
+                <h4>核心考点：</h4>
+                <div class="answer-box" style="background: #fdfdfd;">
+                  <p v-if="row.corePoints" style="white-space: pre-wrap; margin: 0;">{{ row.corePoints }}</p>
+                  <p v-else class="text-gray-400" style="margin: 0;">暂无核心考点</p>
+                </div>
+              </div>
+              <div class="answer-section" style="margin-bottom: 16px;">
+                <h4>标准答案要点：</h4>
+                <div class="answer-box">
+                  <p v-if="row.answerKey" style="white-space: pre-wrap; margin: 0;">{{ row.answerKey }}</p>
+                  <p v-else class="text-gray-400" style="margin: 0;">暂无答案要点</p>
+                </div>
+              </div>
+              <div class="ai-answer-section" style="margin-bottom: 16px;" v-if="row.aiAnswer">
+                <h4>🤖 AI 个性化解答 (结合简历)：</h4>
+                <div class="answer-box" style="background: #f0f9eb; border-left: 4px solid #67c23a;">
+                  <p style="white-space: pre-wrap; margin: 0;">{{ row.aiAnswer }}</p>
+                </div>
+              </div>
+              <div class="variants-section">
+                <h4>面试变体真题 ({{ row.variants?.length || 0 }})：</h4>
+                <el-table :data="row.variants" size="small" border v-if="row.variants?.length">
+                  <el-table-column prop="serialNo" label="序号" width="80" align="center" />
+                  <el-table-column prop="title" label="面试题目" />
+                </el-table>
+                <div v-else class="text-gray-400" style="padding: 10px;">暂无收集到的真题变体</div>
+              </div>
+            </div>
           </template>
         </el-table-column>
 
-        <el-table-column prop="title" label="面试题目" min-width="250">
+        <el-table-column prop="title" label="标准问题" min-width="250">
           <template #default="{ row }">
             <div class="question-title">{{ row.title }}</div>
           </template>
         </el-table-column>
 
-        <el-table-column prop="themeCategory" label="主题分类" width="120">
+        <el-table-column prop="domain" label="技术领域" width="140">
           <template #default="{ row }">
-            <span style="color: #555;">{{ row.themeCategory || '-' }}</span>
+            <span style="color: #333;">{{ row.domain || '-' }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="subCategory" label="二级分类" width="120">
+        <el-table-column prop="categoryTags" label="分类标签" min-width="180">
           <template #default="{ row }">
-            <span style="color: #555;">{{ row.subCategory || '-' }}</span>
-          </template>
-        </el-table-column>
-        
-        <el-table-column prop="tags" label="标签" width="200">
-          <template #default="{ row }">
-            <div class="tags-container" v-if="getParsedTags(row.tags).length > 0">
-              <span class="custom-tag" v-for="(tag, idx) in getParsedTags(row.tags)" :key="idx">
-                {{ tag }}
-              </span>
+            <div v-if="row.categoryTags" style="display: flex; flex-wrap: wrap; gap: 4px;">
+              <el-tag 
+                v-for="(tag, idx) in row.categoryTags.split('/').filter(t => t.trim() !== '')" 
+                :key="idx" 
+                size="small" 
+                type="info" 
+                disable-transitions
+              >
+                {{ tag.trim() }}
+              </el-tag>
             </div>
             <span v-else class="text-gray-400">-</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="考察频次" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="(row.variants?.length || 0) >= 5 ? 'danger' : ((row.variants?.length || 0) >= 2 ? 'warning' : 'info')" size="small">
+              {{ row.variants?.length || 0 }} 次
+            </el-tag>
           </template>
         </el-table-column>
         
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDialog(row)">编辑</el-button>
-            <el-popconfirm title="确定要删除这道题吗？" @confirm="deleteQuestion(row.id)">
+            <el-popconfirm title="确定要删除这道题及所有变体吗？" @confirm="deleteQuestion(row.id)">
               <template #reference>
                 <el-button link type="danger" size="small">删除</el-button>
               </template>
@@ -98,85 +140,79 @@
         />
       </div>
       <div v-else class="empty-state">
-        <p>题库为空，点击右上角“新增题目”开始积累吧！</p>
+        <p>题库为空，请先执行导入脚本或手动添加题目。</p>
       </div>
     </el-card>
 
-    <!-- Dialog -->
-    <el-dialog 
+    <!-- Drawer -->
+    <el-drawer 
       v-model="dialogVisible" 
-      :title="isEdit ? '编辑题目' : '新增题目'"
-      width="800px"
+      :title="isEdit ? '编辑标准问题' : '新增标准问题'"
+      size="800px"
       destroy-on-close
-      custom-class="qb-modal"
+      custom-class="qb-drawer"
     >
       <el-form :model="formData" :rules="rules" ref="formRef" label-position="top">
-        <div style="display: flex; gap: 12px;">
-          <el-form-item label="序号" prop="serialNo" style="flex: 0 0 80px;">
-            <el-input v-model="formData.serialNo" placeholder="例如: 1" />
-          </el-form-item>
-          <el-form-item label="题干" prop="title" style="flex: 1;">
-            <el-input 
-              v-model="formData.title" 
-              type="textarea" 
-              :rows="2" 
-              placeholder="请输入面试题目..." 
-              style="font-size: 16px;" 
-            />
-          </el-form-item>
-        </div>
+        <el-form-item label="标准问题" prop="title">
+          <el-input 
+            v-model="formData.title" 
+            type="textarea" 
+            :rows="2" 
+            placeholder="请输入标准问题..." 
+            style="font-size: 16px;" 
+          />
+        </el-form-item>
         
         <div style="display: flex; gap: 12px;">
-          <el-form-item label="主题分类" prop="themeCategory" style="flex: 1;">
-            <el-input v-model="formData.themeCategory" placeholder="例如: 前端" />
+          <el-form-item label="技术领域" prop="domain" style="flex: 1;">
+            <el-input v-model="formData.domain" placeholder="例如: Java基础" />
           </el-form-item>
-          <el-form-item label="二级分类" prop="subCategory" style="flex: 1;">
-            <el-input v-model="formData.subCategory" placeholder="例如: JavaScript" />
-          </el-form-item>
-          <el-form-item label="标签 (逗号或回车分隔)" prop="tags" style="flex: 1;">
-            <el-select
-              v-model="formData.tags"
-              multiple
-              filterable
-              allow-create
-              default-first-option
-              placeholder="例如: 闭包, 高频"
-              style="width: 100%"
-            >
-              <el-option label="前端" value="前端" />
-              <el-option label="后端" value="后端" />
-              <el-option label="算法" value="算法" />
-              <el-option label="八股文" value="八股文" />
-            </el-select>
+          <el-form-item label="分类标签" prop="categoryTags" style="flex: 1;">
+            <el-input v-model="formData.categoryTags" placeholder="例如: Java/面向对象" />
           </el-form-item>
         </div>
+
+        <el-form-item label="核心考点" prop="corePoints">
+          <el-input 
+            v-model="formData.corePoints" 
+            placeholder="例如: 接口 vs 抽象类、单继承多实现" 
+          />
+        </el-form-item>
         
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-          <span style="font-weight: 500; font-size: 14px; color: #606266;">答案解析</span>
-          <el-button size="small" color="#f5a623" style="color: white; border: none;" @click="aiAnswer">
-            🤖 AI 帮我答 (结合简历)
-          </el-button>
-        </div>
-        <el-input 
-          v-model="formData.answer" 
-          type="textarea" 
-          :rows="8"
-          placeholder="在此输入你的答案或让 AI 生成..." 
-        />
+        <el-form-item label="标准答案要点">
+          <el-input 
+            v-model="formData.answerKey" 
+            type="textarea" 
+            :rows="4"
+            placeholder="在此输入标准答案的答题要点..." 
+          />
+        </el-form-item>
+
+        <el-form-item>
+          <template #label>
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+              <span>🤖 AI 个性化解答 (结合简历)</span>
+              <el-button size="small" color="#f5a623" style="color: white; border: none;" @click="aiAnswer">
+                生成解答
+              </el-button>
+            </div>
+          </template>
+          <el-input 
+            v-model="formData.aiAnswer" 
+            type="textarea" 
+            :rows="6"
+            placeholder="点击右上角按钮生成 AI 个性化解答..." 
+          />
+        </el-form-item>
       </el-form>
       
       <template #footer>
         <span class="dialog-footer" style="display: flex; justify-content: flex-end; gap: 12px;">
-          <el-button v-if="isEdit" color="#e74c3c" style="color: white; margin-right: auto; border: none;" @click="deleteQuestion(formData.id, true)">
-            🗑️ 删除该题
-          </el-button>
           <el-button @click="dialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="saveQuestion" :loading="saving">
-            保存
-          </el-button>
+          <el-button type="primary" @click="saveQuestion" :loading="saving">保存</el-button>
         </span>
       </template>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
@@ -190,6 +226,7 @@ const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
 const searchQuery = ref('')
+const searchDomain = ref('')
 
 const dialogVisible = ref(false)
 const saving = ref(false)
@@ -198,25 +235,15 @@ const formRef = ref(null)
 
 const formData = ref({
   id: '',
-  serialNo: '',
   title: '',
-  themeCategory: '',
-  subCategory: '',
-  tags: [],
-  answer: ''
+  domain: '',
+  categoryTags: '',
+  corePoints: '',
+  answerKey: ''
 })
 
 const rules = {
-  title: [{ required: true, message: '请输入题目', trigger: 'blur' }]
-}
-
-const getParsedTags = (tagsStr) => {
-  if (!tagsStr) return []
-  try {
-    return JSON.parse(tagsStr)
-  } catch (e) {
-    return []
-  }
+  title: [{ required: true, message: '请输入标准问题', trigger: 'blur' }]
 }
 
 const fetchQuestions = async () => {
@@ -225,7 +252,8 @@ const fetchQuestions = async () => {
     const params = new URLSearchParams({
       page: page.value,
       pageSize: pageSize.value,
-      keyword: searchQuery.value
+      keyword: searchQuery.value,
+      domain: searchDomain.value
     })
     
     const res = await $fetch(`/api/questions?${params.toString()}`)
@@ -246,16 +274,38 @@ const handleSearch = () => {
   fetchQuestions()
 }
 
-const handleImportExcel = () => {
-  ElMessage.info('导入 Excel 功能尚未在此版本支持')
-}
+const aiAnswer = async () => {
+  if (!formData.value.title) {
+    ElMessage.warning('请先输入标准问题')
+    return
+  }
 
-const clearQuestionBank = async () => {
+  const loadingMsg = ElMessage({
+    message: '正在思考并结合简历生成答案，请稍候...',
+    type: 'info',
+    duration: 0
+  })
+
   try {
-    // We would need an API endpoint to delete all. For now we will just show a message.
-    ElMessage.info('清空题库 API 尚未实现，请先逐条删除。')
+    const res = await $fetch('/api/questions/ai-answer', {
+      method: 'POST',
+      body: {
+        title: formData.value.title,
+        corePoints: formData.value.corePoints
+      }
+    })
+
+    if (res && res.success) {
+      formData.value.aiAnswer = res.data
+      ElMessage.success('答案生成成功！')
+    } else {
+      ElMessage.error(res?.error || 'AI 回答生成失败')
+    }
   } catch (error) {
-    ElMessage.error('清空失败')
+    console.error('AI generate failed:', error)
+    ElMessage.error('AI 服务调用异常')
+  } finally {
+    loadingMsg.close()
   }
 }
 
@@ -264,30 +314,26 @@ const openDialog = (row = null) => {
     isEdit.value = true
     formData.value = {
       id: row.id,
-      serialNo: row.serialNo || '',
       title: row.title,
-      themeCategory: row.themeCategory || '',
-      subCategory: row.subCategory || '',
-      tags: getParsedTags(row.tags),
-      answer: row.answer || ''
+      domain: row.domain || '',
+      categoryTags: row.categoryTags || '',
+      corePoints: row.corePoints || '',
+      answerKey: row.answerKey || '',
+      aiAnswer: row.aiAnswer || ''
     }
   } else {
     isEdit.value = false
     formData.value = {
       id: '',
-      serialNo: '',
       title: '',
-      themeCategory: '',
-      subCategory: '',
-      tags: [],
-      answer: ''
+      domain: '',
+      categoryTags: '',
+      corePoints: '',
+      answerKey: '',
+      aiAnswer: ''
     }
   }
   dialogVisible.value = true
-}
-
-const aiAnswer = () => {
-  ElMessage.info('正在调用 AI，请稍候... (功能开发中)')
 }
 
 const saveQuestion = async () => {
@@ -306,12 +352,12 @@ const saveQuestion = async () => {
         const res = await $fetch(url, {
           method,
           body: {
-            serialNo: formData.value.serialNo,
             title: formData.value.title,
-            themeCategory: formData.value.themeCategory,
-            subCategory: formData.value.subCategory,
-            tags: formData.value.tags,
-            answer: formData.value.answer
+            domain: formData.value.domain,
+            categoryTags: formData.value.categoryTags,
+            corePoints: formData.value.corePoints,
+            answerKey: formData.value.answerKey,
+            aiAnswer: formData.value.aiAnswer
           }
         })
         
@@ -332,7 +378,7 @@ const saveQuestion = async () => {
   })
 }
 
-const deleteQuestion = async (id, closeDialog = false) => {
+const deleteQuestion = async (id) => {
   try {
     const res = await $fetch(`/api/questions/${id}`, {
       method: 'DELETE'
@@ -340,9 +386,6 @@ const deleteQuestion = async (id, closeDialog = false) => {
     
     if (res && res.success) {
       ElMessage.success('删除成功')
-      if (closeDialog) {
-        dialogVisible.value = false
-      }
       fetchQuestions()
     } else {
       ElMessage.error(res?.error || '删除失败')
@@ -391,18 +434,33 @@ onMounted(() => {
   color: var(--text-primary, #1D1D1F);
   font-size: 14px;
 }
-.tags-container {
+.expand-content {
+  padding: 16px 24px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  margin: 8px 16px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  gap: 16px;
 }
-.custom-tag {
-  background: #F2F2F7;
-  color: #636366;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 500;
+.expand-content h4 {
+  margin: 0 0 8px 0;
+  color: #333;
+}
+.answer-box {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid #e4e7ed;
+  font-size: 14px;
+  color: #444;
+  line-height: 1.6;
+}
+.variants-section {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid #e4e7ed;
 }
 .pagination-container {
   margin-top: 20px;
