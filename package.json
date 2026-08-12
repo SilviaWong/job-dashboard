@@ -7,7 +7,7 @@
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare && node patch-prisma.js"
+    "postinstall": "nuxt prepare && node patch-prisma.cjs"
   },
   "dependencies": {
     "@prisma/adapter-d1": "^5.22.0",
