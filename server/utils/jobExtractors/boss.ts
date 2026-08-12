@@ -12,6 +12,7 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
   const salary = job.salaryDesc || jobInfo.salaryDesc || ''
   const location = job.cityName || jobInfo.locationName || ''
   //jobInfo.address
+  const education = job.jobDegree || jobInfo.degreeName || ''
 
   let companyName = job.brandName || ''
   let companyFullName = job.brandName || ''
@@ -46,6 +47,7 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
     companyId: companyId ? String(companyId) : null,
     salary: String(salary),
     location: String(location),
+    education: String(education),
     updatedAt: updatedAt,
     rawData: stringifiedData
   }
@@ -59,6 +61,7 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
     companyId: companyId ? String(companyId) : null,
     salary: String(salary),
     location: String(location),
+    education: String(education),
     platform: platform,
     dataSource: job.dataSource || 'Boss直聘',
     createdAt: createdAt,

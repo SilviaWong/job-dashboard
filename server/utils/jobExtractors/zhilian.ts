@@ -7,6 +7,7 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
   let jobTitle = ''
   let salary = ''
   let location = ''
+  let education = ''
   let companyName = ''
   let companyFullName = ''
   let companyId = ''
@@ -35,6 +36,7 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
     salary = jobDeliverCache.salary60 || jobDetailData.position?.base?.salary || detailedPosition.salary || ''
     location = jobDeliverCache.workCity || jobDetail.workCity || detailedPosition.positionWorkCity || ''
     // jobDetailData.position?.workLocation?.workAddress || detailedPosition.workAddress
+    education = jobDeliverCache.education || detailedPosition.education || ''
 
     companyId = compInfo.companyNumber || detailedPosition.companyNumber || jobDeliverCache.companyNumber || ''
     if (jobType === 0) {
@@ -59,14 +61,17 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
   } else {
     // 解析 zhilian_scraped_data_v2 中的数据
     const jobDetailData = job.jobDetailData || {}
+    const position = jobDetailData.position || {}
+    const base = position.base || {}
 
     jobType = job.proxyModel?.recruitPosition || 0
 
-    jobId = job.number || jobDetailData.position?.base?.positionNumber || ''
-    jobTitle = job.name || job.list_jobName || jobDetailData.position?.base?.positionName || ''
-    salary = job.salary60 || jobDetailData.position?.base?.salary || ''
+    jobId = job.number || base.positionNumber || ''
+    jobTitle = job.name || job.list_jobName || base.positionName || ''
+    salary = job.salary60 || base.salary || ''
     location = job.workCity || job.jobRootOrgInfo?.cityName || ''
     // jobDetailData.position?.workLocation?.workAddress
+    education = job.education || base.education || ''
 
     companyId = job.companyNumber || job.rootCompanyNumber || ''
     if (jobType === 0) {
@@ -77,8 +82,8 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
     } else {
       // 猎头代招
       // 猎头代招时，companyName是猎头公司名称
-      companyName = jobDetailData.position?.base?.staff?.companyName || ''
-      companyFullName = jobDetailData.position?.base?.staff?.companyName || ''
+      companyName = base.staff?.companyName || ''
+      companyFullName = base.staff?.companyName || ''
     }
 
 
@@ -103,6 +108,7 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
     companyId: companyId ? String(companyId) : null,
     salary: String(salary),
     location: String(location),
+    education: String(education),
     updatedAt: updatedAt
   }
 
@@ -115,6 +121,7 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
     companyId: companyId ? String(companyId) : null,
     salary: String(salary),
     location: String(location),
+    education: String(education),
     platform: platform,
     dataSource: job.dataSource || '智联',
     createdAt: createdAt,

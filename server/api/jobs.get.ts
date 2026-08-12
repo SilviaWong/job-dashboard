@@ -47,7 +47,7 @@ export default defineEventHandler(async (event) => {
 
     // Education filter
     if (education !== 'all') {
-      whereClause.rawData = { contains: education }
+      whereClause.education = { contains: education }
     }
 
     // Keyword filter
