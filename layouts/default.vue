@@ -39,6 +39,12 @@
           <el-icon><FileText /></el-icon>
           <span>简历管理</span>
         </el-menu-item>
+
+        <!-- Skills管理先屏蔽掉：目前功能还未完善，效果不好-->
+        <!-- <el-menu-item index="/ai/skills">
+          <el-icon><Wand2 /></el-icon>
+          <span>Skills管理</span>
+        </el-menu-item> -->
         
         <el-menu-item index="/questions">
           <el-icon><BookOpen /></el-icon>
@@ -64,7 +70,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { ClipboardList, Building2, MapPin, Bot, BookOpen, Briefcase, FileText, LayoutDashboard } from 'lucide-vue-next'
+import { ClipboardList, Building2, MapPin, Bot, BookOpen, Briefcase, FileText, LayoutDashboard, Wand2 } from 'lucide-vue-next'
 
 const route = useRoute()
 const activeMenu = computed(() => {

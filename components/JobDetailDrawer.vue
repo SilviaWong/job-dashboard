@@ -27,9 +27,9 @@
             </div>
 
             <div class="detail-badges">
+              <el-tag effect="light" type="info" size="large" class="badge-tag"><el-icon><Globe /></el-icon> {{ job.platform }}</el-tag>
               <el-tag effect="light" type="info" size="large" class="badge-tag"><el-icon><Briefcase /></el-icon> {{ job.normalizedData?.experience || '经验不限' }}</el-tag>
               <el-tag effect="light" type="info" size="large" class="badge-tag"><el-icon><GraduationCap /></el-icon> {{ job.normalizedData?.degree || '学历不限' }}</el-tag>
-              <el-tag effect="light" type="info" size="large" class="badge-tag"><el-icon><Globe /></el-icon> {{ job.platform }}</el-tag>
             </div>
 
             <div class="section-title"><el-icon><BarChart /></el-icon> 岗位概览</div>
@@ -106,7 +106,7 @@
               </template>
             </div>
 
-            <div class="ai-section generator-section">
+            <div class="ai-section generator-section" style="margin-bottom: 20px;">
               <h4><el-icon><Sparkles /></el-icon> AI 自我介绍生成</h4>
               <div v-if="job.aiResult && job.aiResult.intro">
                 <div class="ai-analysis-content" v-html="formatAiAnalysis(job.aiResult.intro)"></div>
@@ -120,6 +120,34 @@
                 <el-button type="primary" plain class="generate-btn" :loading="generatingGreeting" @click="generateGreeting"><el-icon><Rocket /></el-icon>&nbsp;一键生成自我介绍</el-button>
               </template>
             </div>
+
+            <!-- 统一 AI 技能箱 这个功能先屏蔽掉：目前功能还未完善，效果不好-->
+            <!-- <div class="ai-section generator-section">
+              <h4><el-icon><Sparkles /></el-icon> ✨ AI 技能箱</h4>
+              <p class="generator-desc">基于统一大模型配置和您的简历，一键调用求职 Agent 技能。</p>
+              
+              <div class="skills-grid" style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+                <el-button 
+                  v-for="skill in availableSkills" 
+                  :key="skill.id"
+                  type="primary" 
+                  plain 
+                  :loading="runningSkill === skill.id"
+                  @click="executeSkill(skill)"
+                >
+                  <el-icon><Sparkles /></el-icon>&nbsp;{{ skill.name }}
+                </el-button>
+              </div> -->
+
+              <!-- 技能结果展示区 -->
+              <!-- <div v-if="activeSkillResult" class="skill-result-box" style="margin-top: 15px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                <h5 style="margin: 0 0 10px 0; display: flex; justify-content: space-between; align-items: center;">
+                  <span>执行结果：{{ activeSkillName }}</span>
+                  <el-button size="small" @click="copySkillResult"><el-icon><Copy /></el-icon>&nbsp;复制内容</el-button>
+                </h5>
+                <div class="ai-analysis-content" v-html="formatAiAnalysis(activeSkillResult)"></div>
+              </div>
+            </div> -->
           </div>
         </div>
       </div>
@@ -130,6 +158,7 @@
 <script setup>
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { JobStatus } from '~/utils/enums'
 import { Building, MapPin, Map, Briefcase, GraduationCap, Globe, BarChart, Gift, FileText, Lightbulb, Sparkles, Rocket, ExternalLink, Tags, Ban, Target, Copy, RefreshCw } from 'lucide-vue-next'
 
 const emit = defineEmits(['status-changed'])
@@ -199,9 +228,67 @@ const copyIntro = async () => {
   }
 }
 
+// AI 技能箱状态
+const availableSkills = ref([])
+const activeSkillName = ref('')
+const activeSkillResult = ref('')
+const runningSkill = ref('')
+
+const fetchSkills = async () => {
+  if (availableSkills.value.length > 0) return
+  try {
+    const res = await $fetch('/api/skills/list')
+    if (res && res.success) {
+      availableSkills.value = res.data.filter(s => s.isActive)
+    }
+  } catch (err) {
+    console.error('Failed to fetch AI skills:', err)
+  }
+}
+
+const executeSkill = async (skill) => {
+  if (!job.value || !job.value.id) return
+  
+  runningSkill.value = skill.id
+  activeSkillName.value = skill.name
+  activeSkillResult.value = ''
+  
+  try {
+    const res = await $fetch('/api/skills/execute', {
+      method: 'POST',
+      body: { jobId: job.value.id, skillId: skill.id }
+    })
+    
+    if (res && res.success) {
+      ElMessage.success(`${skill.name} 执行成功！`)
+      activeSkillResult.value = res.data
+    } else {
+      ElMessage.error(res?.message || '执行失败，请检查模型配置或简历')
+    }
+  } catch (error) {
+    console.error('Skill execution failed:', error)
+    ElMessage.error('服务调用异常')
+  } finally {
+    runningSkill.value = ''
+  }
+}
+
+const copySkillResult = async () => {
+  if (!activeSkillResult.value) return
+  try {
+    await navigator.clipboard.writeText(activeSkillResult.value)
+    ElMessage.success('已复制到剪贴板')
+  } catch (err) {
+    console.error('Copy failed:', err)
+    ElMessage.error('复制失败')
+  }
+}
+
 const open = (jobData) => {
   job.value = jobData
   visible.value = true
+  activeSkillResult.value = ''
+  fetchSkills()
 }
 
 const markAsExpired = async (jobData) => {
@@ -210,12 +297,12 @@ const markAsExpired = async (jobData) => {
   try {
     const res = await $fetch(`/api/jobs/${jobData.id}/status`, {
       method: 'PUT',
-      body: { status: 'expired' }
+      body: { status: JobStatus.EXPIRED }
     })
     if (res.success) {
       ElMessage.success('已标记为失效职位')
       visible.value = false
-      emit('status-changed', jobData, 'expired')
+      emit('status-changed', jobData, JobStatus.EXPIRED)
     } else {
       ElMessage.error(res.message || res.error || '标记失败')
     }

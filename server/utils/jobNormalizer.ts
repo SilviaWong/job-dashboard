@@ -59,6 +59,8 @@ export interface NormalizedJobData {
   clientCompanyName: string;
   /** 数据来源 (Source) */
   dataSource: string;
+  /** 职位状态 (Job Status) */
+  jobStatus: string;
 }
 
 /** 提取标签的通用工厂函数，根据传入的可能属性名来提取 */
@@ -104,7 +106,7 @@ function normalizeBossJob(job: any, raw: any, raw2: any, companyInfo?: any, jobD
     companyStage: raw?.brandStageName || comp.customerBrandStageName || comp.stageName || '',
     companyScale: raw?.brandScaleName || comp.scaleName || boss_single['公司规模'] || '',
     brandName: raw?.proxyJob === 0 ? (raw?.brandName || comp.brandName || comp.customerBrandName || boss_single['公司名称'] || '') : (boss.brandName || boss_single['HR职位'] || ''),
-    companyFullName: raw?.proxyJob === 0 ? (raw?._fetched_companyFullName || raw?.['公司全称'] || boss_single['公司全称'] || raw?.brandName || comp.customerBrandName || comp.brandName || '') : (boss.brandName || boss_single['HR职位'] || ''),
+    companyFullName: raw?.proxyJob === 0 ? (boss_single['公司全称'] || raw?._fetched_companyFullName || raw?.['公司全称'] || raw?.brandName || comp.customerBrandName || comp.brandName || '') : (boss.brandName || boss_single['HR职位'] || ''),
     companyId: raw?.encryptBrandId || comp.encryptBrandId || boss.brandName || '',
     hrName: raw?.bossName || boss.name || boss_single['HR姓名'] || '',
     hrPosition: raw?.bossTitle || boss.title || boss_single['HR职位'] || '',
@@ -126,6 +128,7 @@ function normalizeBossJob(job: any, raw: any, raw2: any, companyInfo?: any, jobD
     isHeadhunter: raw?.proxyJob === 1 || info?.proxyJob === 1,
     clientCompanyName: raw?.proxyJob === 1 ? (raw?.brandName || comp.customerBrandName || comp.brandName || '') : '',
     dataSource: 'BOSS直聘',
+    jobStatus: boss_single['招聘状态'] || job.status || '',
   };
 }
 
@@ -173,89 +176,88 @@ function normalize51Job(job: any, raw: any, raw2: any, companyInfo?: any, jobDet
     isHeadhunter: fallback.jobType === '1' || fallback.jobType === '2' || fallback.companyTypeString === '中介',
     clientCompanyName: fallback.jobType === '1' || fallback.jobType === '2' ? fallback.compName : '',
     dataSource: '51job',
+    jobStatus: job.status || '',
   };
 }
 
 /** 智联招聘适配器 */
 function normalizeZhilianJob(job: any, raw: any, raw2: any, companyInfo?: any, jobDetail?: any): NormalizedJobData {
   const fallback = raw || {};
-  const jd = fallback.jobDetailData || {};
-  const posBase = jd.position?.base || {};
-  const staff = jd.staff || {};
+  // const jd = fallback.jobDetailData || {};
+  // const posBase = jd.position?.base || {};
+  // const staff = jd.staff || {};
 
-  const rawData2 = raw2 || {};
-  const jobDeliverCache = rawData2.jobDeliverCache || {};
-  const jobDetailData = jobDeliverCache.jobDetailData || {};
+  // const rawData2 = raw2 || {};
+  // const jobDeliverCache = rawData2.jobDeliverCache || {};
+  const jobDetailData = fallback.jobDetailData || {};
+  const position = jobDetailData.position || {};
+  const base = position.base || {};
+  const staff = jobDetailData.staff || {};
 
-  const jobDetailInfo = rawData2.jobDetail || {};
+  const jobDetailInfo = fallback.jobDetail || {};
   const detailedCompany = jobDetailInfo.detailedCompany || {};
   const detailedPosition = jobDetailInfo.detailedPosition || {};
 
   // 智联招聘中用于标识职位是公司直招还是猎头/代招
   // 0: 公司直招, 1/2/3/4: 猎头/代招, 空: 公司直招
-  let jobType = fallback.proxyModel?.recruitPosition || jobDeliverCache.proxyModel?.recruitPosition || 0
+  let jobType = fallback.proxyModel?.recruitPosition || detailedPosition.recruitPosition || 0
 
   let compName = ''
   let compfullName = ''
 
   if (jobType === 0) {
-    compName = fallback.companyName || jobDeliverCache.companyName || detailedCompany.companyName || ''
-    compfullName = fallback.companyName || jobDeliverCache.companyName || detailedCompany.companyName || ''
+    compName = fallback.companyName || detailedCompany.companyName || ''
+    compfullName = fallback.companyName || detailedCompany.companyName || ''
   } else {
     // 猎头
-    compName = staff.companyName || jobDetailData.staff?.companyName || detailedPosition.staff?.companyName || ''
-    compfullName = staff.companyName || jobDetailData.staff?.companyName || detailedPosition.staff?.companyName || ''
+    compName = staff.companyName || detailedPosition.staff?.companyName || ''
+    compfullName = staff.companyName || detailedPosition.staff?.companyName || ''
   }
 
 
   return {
-    jobUrl: fallback.positionUrl || fallback.list_url || jobDeliverCache.positionUrl || detailedPosition.positionUrl || '',
-    publishDate: fallback.firstPublishTime || jobDeliverCache.firstPublishTime || detailedPosition.positionPublishTime || '',
-    updateDate: fallback.publishTime || jobDeliverCache.publishTime || detailedPosition.publishTime || '',
+    jobUrl: fallback.positionUrl || detailedPosition.positionUrl || '',
+    publishDate: fallback.firstPublishTime || detailedPosition.positionPublishTime || '',
+    updateDate: fallback.publishTime || detailedPosition.publishTime || '',
     spiderDate: fallback['创建时间'] || fallback['抓取时间'] || '',
-    companyIndustry: fallback.industryName || jobDeliverCache.industryName || detailedCompany.industryNameLevel || detailedCompany.industryLevel || '',
-    companyStage: fallback.financingStage?.name || jobDeliverCache.financingStage?.name || detailedCompany.financingStageName || '',
-    companyScale: fallback.companySize || jobDeliverCache.companySize || detailedCompany.companySize || '',
+    companyIndustry: fallback.industryName || detailedCompany.industryNameLevel || detailedCompany.industryLevel || '',
+    companyStage: fallback.financingStage?.name || detailedCompany.financingStageName || '',
+    companyScale: fallback.companySize || detailedCompany.companySize || '',
     brandName: job.companyName || compName || '',
     companyFullName: job.companyFullName || compfullName || '',
-    companyId: fallback.companyNumber || jobDeliverCache.companyNumber || jobDeliverCache.rootCompanyNumber || detailedCompany.companyNumber || detailedPosition.companyNumber || '',
-    hrName: staff.staffName || fallback.staffCard?.staffName || jobDetailData.staff?.staffName || jobDeliverCache.staffCard?.staffName || detailedPosition.staff?.staffName || '',
-    hrPosition: staff.hrJob || fallback.staffCard?.hrJob || jobDetailData.staff?.hrJob || jobDeliverCache.staffCard?.hrJob || detailedPosition.staff?.hrJob || '',
+    companyId: fallback.companyNumber || detailedCompany.companyNumber || detailedPosition.companyNumber || '',
+    hrName: staff.staffName || fallback.staffCard?.staffName || jobDetailData.staff?.staffName || detailedPosition.staff?.staffName || '',
+    hrPosition: staff.hrJob || fallback.staffCard?.hrJob || jobDetailData.staff?.hrJob || detailedPosition.staff?.hrJob || '',
     hrCompanyName: staff.companyName || jobDetailData.staff?.companyName || detailedPosition.staff?.companyName || '',
     welfareList: Array.from(new Set([
       // 来源于 fallback 的数据
       ...((fallback.jobKeyword?.keywords || []).map((k: any) => k?.itemValue).filter(Boolean)),
-      ...(fallback.jobKnowledgeWelfareFeatures || []),
+      ...(fallback.jobKnowledgeWelfareFeatures || [])
 
-      // 来源于 jobDeliverCache 的数据
-      ...((jobDeliverCache.jobKeyword?.keywords || []).map((k: any) => k?.itemValue).filter(Boolean)),
-      ...(jobDeliverCache.jobKnowledgeWelfareFeatures || [])
     ])),
     skills: extractZhilianTags(
-      (jd.position?.desc?.labels?.length ? jd.position.desc.labels : null) ||
       (fallback.jobSkillTags?.length ? fallback.jobSkillTags : null) ||
       fallback.skillLabel ||
-      (jobDetailData.position?.desc?.labels?.length ? jd.position.desc.labels : null) ||
-      (jobDetailData.jobSkillTags?.length ? fallback.jobSkillTags : null) ||
-      jobDetailData.skillLabel ||
+      (jobDetailData.position?.desc?.labels?.length ? jobDetailData.position.desc.labels : null) ||
       (detailedPosition.labels?.length ? detailedPosition.labels : null) ||
       detailedPosition.skillLabel || []
     ),
-    jobId: fallback.number || posBase.positionNumber || jobDetailData.position?.base?.positionNumber || jobDeliverCache.number || detailedPosition.number || detailedPosition.positionNumber || '',
-    jobName: fallback.name || fallback.list_name || posBase.positionName || jobDetailData.position?.base?.positionName || jobDeliverCache.name || detailedPosition.name || detailedPosition.positionName || '',
-    salaryRange: fallback.salary60 || posBase.salary || jobDetailData.position?.base?.salary || jobDeliverCache.salary60 || detailedPosition.salary || '',
-    jobDesc: jd.position?.desc?.description || detailedPosition.description || detailedPosition.jobDesc || '暂无描述',
-    experience: posBase.positionWorkingExp || fallback.workingExp || jobDetailData.position?.base?.positionWorkingExp || jobDeliverCache.workingExp || detailedPosition.positionWorkingExp || detailedPosition.workingExp || '经验不限',
-    degree: posBase.education || fallback.education || jobDetailData.position?.base?.education || jobDeliverCache.education || detailedPosition.education || '学历不限',
+    jobId: fallback.number || base.positionNumber || jobDetailData.position?.base?.positionNumber || detailedPosition.number || detailedPosition.positionNumber || '',
+    jobName: fallback.name || fallback.list_name || base.positionName || jobDetailData.position?.base?.positionName || detailedPosition.name || detailedPosition.positionName || '',
+    salaryRange: fallback.salary60 || base.salary || jobDetailData.position?.base?.salary || detailedPosition.salary || '',
+    jobDesc: jobDetailData.position?.desc?.description || detailedPosition.description || detailedPosition.jobDesc || '暂无描述',
+    experience: base.positionWorkingExp || fallback.workingExp || jobDetailData.position?.base?.positionWorkingExp || detailedPosition.positionWorkingExp || detailedPosition.workingExp || '经验不限',
+    degree: base.education || fallback.education || jobDetailData.position?.base?.education || detailedPosition.education || '学历不限',
     positionType: jobType || '',
-    jobTags: extractZhilianTags(fallback.showSkillTags || jobDeliverCache.showSkillTags || []),
-    city: fallback.workCity || fallback.jobRootOrgInfo?.cityName || jobDeliverCache.workCity || detailedPosition.positionWorkCity || detailedPosition.workCity || '',
-    area: fallback.cityDistrict || jobDeliverCache.cityDistrict || detailedPosition.cityDistrict || detailedPosition.positionCityDistrict || '',
-    businessDistrict: fallback.streetName || jobDeliverCache.streetName || '',
-    address: jd.position?.workLocation?.workAddress || jobDetailData.position?.workLocation?.workAddress || detailedPosition.workAddress || '',
+    jobTags: extractZhilianTags(fallback.showSkillTags || []),
+    city: fallback.workCity || fallback.jobRootOrgInfo?.cityName || detailedPosition.positionWorkCity || detailedPosition.workCity || '',
+    area: fallback.cityDistrict || detailedPosition.cityDistrict || detailedPosition.positionCityDistrict || '',
+    businessDistrict: fallback.streetName || position.workLocation?.streetName || '',
+    address: jobDetailData.position?.workLocation?.workAddress || detailedPosition.workAddress || '',
     isHeadhunter: jobType > 0 || false,
-    clientCompanyName: jd.companyProxy?.companyName || fallback.proxyModel?.proxiedOrgName || jobDetailData.companyProxy?.companyName || detailedPosition.companyProxy?.companyName || jobDeliverCache.proxyModel?.proxiedOrgName || '',
+    clientCompanyName: jobDetailData.companyProxy?.companyName || detailedPosition.companyProxy?.companyName || '',
     dataSource: '智联',
+    jobStatus: job.status || '',
   };
 }
 
@@ -298,13 +300,14 @@ function normalizeLiepinJob(job: any, raw: any, raw2: any, companyInfo?: any, jo
     degree: jobInfo.requireEduLevel || jdJson.educationRequirements || '学历不限',
     positionType: jobInfo.jobKind || '',
     jobTags: extractLiepinTags((fallback.jobTags?.length ? fallback.jobTags : null) || (jobInfo.jobTags?.length ? jobInfo.jobTags : null) || []),
-    city: jobInfo.dqCityName || jdJson.jobLocation?.address?.addressLocality || '',
+    city: jobInfo.dqCityName || jdJson.jobLocation?.address?.addressLocality || jobInfo.dq || '',
     area: jobInfo.dqAreaName || '',
     businessDistrict: fallback.businessDistrict || jobInfo.businessDistrict || '',
     address: jdJson.jobLocation?.address?.streetAddress || jdJson.jobLocation?.address?.addressLocality || jobInfo.dq || '',
     isHeadhunter: String(jobInfo.jobKind) === '1',
     clientCompanyName: jobInfo.jobKind === '1' ? (comp.compName || jdJson.hiringOrganization?.name) : '',
     dataSource: '猎聘',
+    jobStatus: job.status || '',
   };
 }
 
@@ -342,6 +345,7 @@ function normalizeFallbackJob(job: any, raw: any, raw2: any, companyInfo?: any, 
     isHeadhunter: false,
     clientCompanyName: fallback['代招客户公司名称'] || fallback.clientCompanyName || '',
     dataSource: '兜底',
+    jobStatus: job.status || '',
   };
 }
 

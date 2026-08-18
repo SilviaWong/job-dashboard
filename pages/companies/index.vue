@@ -4,19 +4,28 @@
       <template #header>
         <div class="card-header">
           <span style="font-size: 18px; font-weight: 600;">🏢 企业全景</span>
-          <el-input
-            v-model="searchQuery"
-            placeholder="搜索公司名称..."
-            style="width: 300px"
-            clearable
-          >
-            <template #prefix>
-              <span>🔍</span>
-            </template>
-          </el-input>
-          <el-button type="primary" size="small" @click="fetchCompanies" :loading="loading">
-            刷新数据
-          </el-button>
+          <div style="display: flex; gap: 16px; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 14px; color: #606266;">职位状态:</span>
+              <el-radio-group v-model="status" size="small" @change="() => fetchCompanies(false)">
+                <el-radio-button value="all">全部</el-radio-button>
+                <el-radio-button value="normal">常规</el-radio-button>
+              </el-radio-group>
+            </div>
+            <el-input
+              v-model="searchQuery"
+              placeholder="搜索公司名称..."
+              style="width: 300px"
+              clearable
+            >
+              <template #prefix>
+                <span>🔍</span>
+              </template>
+            </el-input>
+            <el-button type="primary" size="small" @click="() => fetchCompanies(false)" :loading="loading">
+              刷新数据
+            </el-button>
+          </div>
         </div>
       </template>
 
@@ -92,7 +101,12 @@
                     <h3 class="job-title" :title="job.title">
                       {{ job.title }}
                     </h3>
-                    <span class="job-salary">{{ job.salary }}</span>
+                    <div class="job-salary-score">
+                      <span class="job-salary">{{ job.salary }}</span>
+                      <span v-if="job.aiResult" class="inline-score-badge" :style="getScoreStyle(job.aiResult.score)">
+                        <el-icon style="margin-right: 4px; font-size: 13px;"><Bot /></el-icon>{{ job.aiResult.score }}分 · {{ job.aiResult.matchLevel }}
+                      </span>
+                    </div>
                   </div>
                   
                   <div class="job-card-info">
@@ -144,15 +158,16 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Loader2 } from 'lucide-vue-next'
+import { Loader2, Bot } from 'lucide-vue-next'
 
 const loading = ref(false)
 const companies = ref([])
 const totalCompanies = ref(0)
 const searchQuery = ref('')
 const page = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(12)
 const hasMore = ref(true)
+const status = ref('normal')
 
 const jobDetailDrawerRef = ref(null)
 
@@ -168,15 +183,24 @@ const getPlatformType = (plat) => {
   return 'info'
 }
 
+// 格式化日期
 const formatDate = (dateStr) => {
-  if (!dateStr) return '未知'
+  if (!dateStr) return ''
   try {
-    const d = new Date(dateStr)
-    if (isNaN(d)) return dateStr
-    return `${d.getMonth() + 1}-${d.getDate()}`
-  } catch(e) {
+    return new Date(dateStr).toLocaleDateString('zh-CN', {
+      month: 'short',
+      day: 'numeric'
+    })
+  } catch (e) {
     return dateStr
   }
+}
+
+const getScoreStyle = (score) => {
+  if (!score) return { backgroundColor: '#fee2e2', color: '#b91c1c', padding: '2px 6px', borderRadius: '4px', fontSize: '12px' }
+  if (score >= 80) return { backgroundColor: '#dcfce3', color: '#15803d', padding: '2px 6px', borderRadius: '4px', fontSize: '12px' } // High match (Green)
+  if (score >= 60) return { backgroundColor: '#ffedd5', color: '#c2410c', padding: '2px 6px', borderRadius: '4px', fontSize: '12px' } // Mid match (Orange)
+  return { backgroundColor: '#fee2e2', color: '#b91c1c', padding: '2px 6px', borderRadius: '4px', fontSize: '12px' } // Low match (Red)
 }
 
 const viewDetails = (job) => {
@@ -213,7 +237,8 @@ const fetchCompanies = async (isLoadMore = false) => {
       params: {
         page: page.value,
         pageSize: pageSize.value,
-        query: searchQuery.value
+        query: searchQuery.value,
+        status: status.value
       }
     })
     if (res.success) {
@@ -374,6 +399,22 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 250px;
+}
+.job-salary-score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.inline-score-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
 }
 .job-salary {
   font-size: 16px;

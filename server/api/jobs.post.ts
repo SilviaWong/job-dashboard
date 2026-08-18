@@ -9,7 +9,8 @@ export default defineEventHandler(async (event) => {
     return { success: false, message: 'Invalid data format. Expected an array of jobs.' }
   }
 
-  const upsertPromises = body.map(async (job) => {
+  const results = []
+  for (const job of body) {
     let rawPlatform = String(job.platform || job['平台'] || '未知')
     const lowerPlatform = rawPlatform.toLowerCase()
     if (lowerPlatform === 'liepin' || lowerPlatform === '猎聘') rawPlatform = '猎聘'
@@ -24,11 +25,16 @@ export default defineEventHandler(async (event) => {
     }
 
     const processor = getJobProcessor(rawPlatform)
-    return processor(job, rawPlatform, prisma)
-  })
+    
+    try {
+      const result = await processor(job, rawPlatform, prisma)
+      results.push({ status: 'fulfilled', value: result })
+    } catch (error) {
+      results.push({ status: 'rejected', reason: error })
+    }
+  }
 
   try {
-    const results = await Promise.allSettled(upsertPromises)
     const successCount = results.filter(r => r.status === 'fulfilled').length
     const failures = results.filter(r => r.status === 'rejected')
     if (failures.length > 0) {

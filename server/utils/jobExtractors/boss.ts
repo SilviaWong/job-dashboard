@@ -16,7 +16,7 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
 
   let companyName = job.brandName || ''
   let companyFullName = job.brandName || ''
-  let companyId = job.encryptBrandId || ''
+  let companyId = job.encryptBrandId || brandComInfo.encryptBrandId || ''
 
   // Boss直聘中职位类型分为两种：一种是企业直招，另一种是猎头/代招
   // job.proxyJob === 0表示企业直招，job.proxyJob === 1表示猎头/代招 (另一个属性 jobInfo.proxyJob 的值也是一样的)
@@ -32,7 +32,7 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
     companyName = bossInfo.brandName || ''
     companyFullName = bossInfo.brandName || ''
     // boss直聘中猎头/代招的职位数据没有公司Id
-    companyId = ''
+    // companyId = ''
   }
 
   const stringifiedData = JSON.stringify(job)

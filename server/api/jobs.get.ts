@@ -1,16 +1,19 @@
 import { getPrisma } from '#prisma'
 import { normalizeJobData } from '../utils/jobNormalizer'
+import { JobStatus } from '../../utils/enums'
 
 export default defineEventHandler(async (event) => {
   const prisma = getPrisma(event)
   const query = getQuery(event)
-  const status = query.status as string || 'normal'
+  const status = query.status as string || JobStatus.NORMAL
   const filterFavoritesOnly = query.filterFavoritesOnly === 'true'
   const filterShowBlacklisted = query.filterShowBlacklisted === 'true'
   const filterShowHidden = query.filterShowHidden === 'true'
+  const filterMissingBossDetail = query.filterMissingBossDetail === 'true'
   const platform = query.platform as string || 'all'
   const education = query.education as string || 'all'
   const keyword = query.keyword as string || ''
+  const salaryFilter = query.salaryFilter as string || 'all'
 
   const page = parseInt(query.page as string) || 1
   const pageSize = parseInt(query.pageSize as string) || 20
@@ -25,14 +28,15 @@ export default defineEventHandler(async (event) => {
       andConditions.push({
         OR: [
           { isHidden: true },
-          { status: 'expired' }
+          { status: JobStatus.EXPIRED }
         ]
       })
+    } else if (status === 'all') {
+      // When 'all' is selected, we query all jobs in the data (including hidden/expired)
+      // No isHidden or status filter is applied
     } else {
       whereClause.isHidden = false
-      if (status !== 'all') {
-        whereClause.status = status
-      }
+      whereClause.status = status
     }
 
     // Favorites filter
@@ -50,7 +54,6 @@ export default defineEventHandler(async (event) => {
       whereClause.education = { contains: education }
     }
 
-    // Keyword filter
     if (keyword) {
       andConditions.push({
         OR: [
@@ -58,6 +61,28 @@ export default defineEventHandler(async (event) => {
           { companyName: { contains: keyword } }
         ]
       })
+    }
+    
+    // AI Diagnosis filter
+    const aiDiagnosisFilter = query.aiDiagnosisFilter as string || 'all'
+    let aiDiagnosedJobIdsSet = new Set<string>()
+    if (aiDiagnosisFilter !== 'all') {
+      const aiResults = await prisma.aiJobResult.findMany({ select: { jobId: true } })
+      aiDiagnosedJobIdsSet = new Set(aiResults.map(r => r.jobId))
+    }
+    
+    // Missing Boss Detail Filter
+    if (filterMissingBossDetail) {
+      const bossDetails = await prisma.bossSingleDetail.findMany({ select: { jobId: true } })
+      const bossDetailJobIds = bossDetails.map(d => d.jobId)
+      if (bossDetailJobIds.length > 0) {
+        andConditions.push({
+          OR: [
+            { platform: { not: 'Boss直聘' } },
+            { jobId: { notIn: bossDetailJobIds } }
+          ]
+        })
+      }
     }
 
     if (andConditions.length > 0) {
@@ -84,18 +109,86 @@ export default defineEventHandler(async (event) => {
       blacklistedSet = new Set(blacklisted.map(b => b.companyName))
     }
 
-    const totalJobs = await prisma.job.count({
-      where: whereClause
-    })
+    let totalJobs = 0
+    let jobs = []
+    
+    if (salaryFilter !== 'all' || aiDiagnosisFilter !== 'all') {
+      const allJobs = await prisma.job.findMany({
+        where: whereClause,
+        orderBy: { updatedAt: 'desc' }
+      })
+      
+      const filteredJobs = allJobs.filter(job => {
+        // AI Diagnosis Filter
+        if (aiDiagnosisFilter === 'diagnosed' && !aiDiagnosedJobIdsSet.has(job.jobId)) {
+          return false
+        }
+        if (aiDiagnosisFilter === 'undiagnosed' && aiDiagnosedJobIdsSet.has(job.jobId)) {
+          return false
+        }
 
-    const jobs = await prisma.job.findMany({
-      where: whereClause,
-      orderBy: {
-        updatedAt: 'desc'
-      },
-      skip: (page - 1) * pageSize,
-      take: pageSize
-    })
+        // Salary Filter
+        if (salaryFilter !== 'all') {
+          const salaryStr = job.salary ? job.salary.toUpperCase() : ''
+          let min = 0, max = 0
+          
+          const kMatch = salaryStr.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)K/)
+          if (kMatch) {
+            min = parseFloat(kMatch[1])
+            max = parseFloat(kMatch[2])
+          } else {
+            const wMatch = salaryStr.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)万/)
+            if (wMatch) {
+              min = parseFloat(wMatch[1]) * 10
+              max = parseFloat(wMatch[2]) * 10
+            } else {
+              const dMatch = salaryStr.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)元\/天/)
+              if (dMatch) {
+                min = (parseFloat(dMatch[1]) * 22) / 1000
+                max = (parseFloat(dMatch[2]) * 22) / 1000
+              } else {
+                const singleKMatch = salaryStr.match(/(\d+(?:\.\d+)?)K/)
+                if (singleKMatch) {
+                  min = max = parseFloat(singleKMatch[1])
+                } else {
+                  const singleWMatch = salaryStr.match(/(\d+(?:\.\d+)?)万/)
+                  if (singleWMatch) {
+                    min = max = parseFloat(singleWMatch[1]) * 10
+                  }
+                }
+              }
+            }
+          }
+          
+          if (min === 0 && max === 0) return false
+          
+          const [fMinStr, fMaxStr] = salaryFilter.split('-')
+          const fMin = parseFloat(fMinStr)
+          const fMax = fMaxStr ? parseFloat(fMaxStr) : 999
+          
+          const avg = (min + max) / 2
+          if (avg < fMin || avg > fMax) return false
+        }
+        
+        return true
+      })
+      
+      totalJobs = filteredJobs.length
+      jobs = filteredJobs.slice((page - 1) * pageSize, page * pageSize)
+    } else {
+      totalJobs = await prisma.job.count({
+        where: whereClause
+      })
+
+      jobs = await prisma.job.findMany({
+        where: whereClause,
+        orderBy: {
+          updatedAt: 'desc'
+        },
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      })
+    }
 
     // Extract jobIds to query related decoupled data
     const jobIds = jobs.map(j => j.jobId)

@@ -14,24 +14,25 @@ export default defineEventHandler(async (event) => {
     return { success: true, message: 'No data to sync.' }
   }
 
-  const upsertPromises = zhilianCacheKeys.map(async (jobId) => {
+  const results = []
+  for (const jobId of zhilianCacheKeys) {
     const rawData = body[jobId]
-    if (!rawData) return Promise.resolve()
+    if (!rawData) continue
 
     try {
-      return await prisma.zhilianEnrichmentCache.upsert({
+      const result = await prisma.zhilianEnrichmentCache.upsert({
         where: { jobId },
         update: { rawData: JSON.stringify(rawData) },
         create: { jobId, rawData: JSON.stringify(rawData) }
       })
+      results.push({ status: 'fulfilled', value: result })
     } catch (err) {
       console.error('Failed to upsert ZhilianEnrichmentCache:', jobId, err)
-      throw err
+      results.push({ status: 'rejected', reason: err })
     }
-  })
+  }
 
   try {
-    const results = await Promise.allSettled(upsertPromises)
     const successCount = results.filter(r => r.status === 'fulfilled').length
     const failures = results.filter(r => r.status === 'rejected')
     

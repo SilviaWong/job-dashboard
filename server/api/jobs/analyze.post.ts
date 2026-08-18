@@ -38,7 +38,7 @@ export default defineEventHandler(async (event) => {
   if (!jobId) {
     return { success: false, error: '缺少 jobId' }
   }
-  
+
   const prisma = getPrisma(event)
 
   try {
@@ -46,7 +46,7 @@ export default defineEventHandler(async (event) => {
     const job = await prisma.job.findFirst({
       where: { jobId }
     })
-    
+
     if (!job) {
       return { success: false, error: '职位不存在' }
     }
@@ -68,9 +68,34 @@ export default defineEventHandler(async (event) => {
     }
 
     // 3. Construct Prompt
-    let jobDetails = job.rawData ? JSON.parse(job.rawData) : {}
-    let jobDescription = jobDetails['职位描述'] || jobDetails['jobDescription'] || ''
-    
+    let rawData = job.rawData ? JSON.parse(job.rawData) : {}
+    let jobInfo = null
+    let jobDescription = ''
+    const platform = (job.platform || '').toLowerCase()
+
+    switch (platform) {
+      case '猎聘':
+        jobInfo = rawData.jobDetailJson || {}
+        jobDescription = jobInfo.description || jobInfo.supplementalDomData?.jobDescribe || ''
+        break
+      case 'boss直聘':
+        jobInfo = rawData.jobDetail?.zpData?.jobInfo || {}
+        jobDescription = jobInfo.postDescription || ''
+        break
+      case '智联':
+        const jobDetailData = rawData.jobDetailData || {};
+        jobInfo = rawData.jobDetail?.detailedPosition || {}
+        jobDescription = jobDetailData.position?.desc?.description || jobInfo.description || jobInfo.jobDesc || ''
+        break
+      case '51job':
+        jobInfo = rawData.raw_detail_json?.detailJobInfo || {}
+        jobDescription = rawData.jobDescribe || jobInfo.jobDescribe || ''
+        break
+      default:
+        jobDescription = rawData.jobDescription || ''
+        break
+    }
+
     const prompt = `
 === 职位信息 ===
 职位名称：${job.title}
@@ -152,21 +177,21 @@ ${settings.resume}
     // 5. Parse Score
     let totalScore = 0;
     try {
-        const scoreMatch = resultText.match(/\[([\d,\s]+)\]/);
-        if (scoreMatch && scoreMatch[1]) {
-            const scores = scoreMatch[1].split(',').map(s => parseInt(s.trim()));
-            totalScore = scores.reduce((a, b) => a + (isNaN(b) ? 0 : b), 0);
-        } else {
-            // 尝试在文本中寻找 0-100 的总分
-            const fallbackMatch = resultText.match(/(?:总分|综合得分|匹配度).*?(\\d{1,3})/);
-            if (fallbackMatch && fallbackMatch[1]) {
-                totalScore = parseInt(fallbackMatch[1]);
-            }
+      const scoreMatch = resultText.match(/\[([\d,\s]+)\]/);
+      if (scoreMatch && scoreMatch[1]) {
+        const scores = scoreMatch[1].split(',').map(s => parseInt(s.trim()));
+        totalScore = scores.reduce((a, b) => a + (isNaN(b) ? 0 : b), 0);
+      } else {
+        // 尝试在文本中寻找 0-100 的总分
+        const fallbackMatch = resultText.match(/(?:总分|综合得分|匹配度).*?(\\d{1,3})/);
+        if (fallbackMatch && fallbackMatch[1]) {
+          totalScore = parseInt(fallbackMatch[1]);
         }
+      }
     } catch (e) {
-        console.error('Parse score error:', e);
+      console.error('Parse score error:', e);
     }
-    
+
     // 确保总分在合理区间
     totalScore = Math.max(0, Math.min(100, totalScore));
 

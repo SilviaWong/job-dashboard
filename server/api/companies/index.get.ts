@@ -4,15 +4,24 @@ import { normalizeJobData } from '../../utils/jobNormalizer'
 export default defineEventHandler(async (event) => {
   const prisma = getPrisma(event)
 
+  const query = getQuery(event)
+  const status = query.status as string || 'normal'
+
+  let jobWhere: any = {
+    status: {
+      not: 'deleted'
+    }
+  }
+
+  if (status === 'normal') {
+    jobWhere.isHidden = false
+    jobWhere.status = 'normal'
+  }
+
   try {
     // 1. 获取所有存在并且未隐藏的 Job（排除黑名单我们可以在前端或者这里做，这里简单起见抓取所有正常数据）
     const jobs = await prisma.job.findMany({
-      where: {
-        isHidden: false,
-        status: {
-          not: 'deleted' // 如果有类似状态的话
-        }
-      },
+      where: jobWhere,
       select: {
         jobId: true,
         title: true,
