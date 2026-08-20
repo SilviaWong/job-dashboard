@@ -1,54 +1,50 @@
 import { getPrisma } from '#prisma'
-import { normalizeJobData } from '../../utils/jobNormalizer'
 
 export default defineEventHandler(async (event) => {
   const prisma = getPrisma(event)
 
   try {
-    const jobs = await prisma.job.findMany()
+    // 仅查询统计所需字段，不加载庞大的 rawData 字段，防止爆内存和 CPU 超时
+    const jobs = await prisma.job.findMany({
+      select: {
+        title: true,
+        salary: true,
+        education: true,
+        tags: true
+      }
+    })
 
     const salaryDist = { '10k以下': 0, '10-20k': 0, '20-30k': 0, '30k以上': 0, '面议': 0 }
     const expDist: Record<string, number> = {}
     const skillsDist: Record<string, number> = {}
 
     for (const job of jobs) {
-      let parsedRawData = null
-      let parsedRawData2 = null
-      try {
-        if (job.rawData) parsedRawData = JSON.parse(job.rawData)
-        if (job.rawData2) parsedRawData2 = JSON.parse(job.rawData2)
-      } catch (e) {
-        // ignore parse error
-      }
+      // 1. 薪资分布解析
+      const salaryStr = String(job.salary || '').trim().toUpperCase()
+      let maxK = -1
 
-      const rawJobObj = {
-        ...parsedRawData,
-        ...parsedRawData2,
-        dataSource: job.dataSource,
-        platform: job.platform,
-        isFavorited: job.isFavorited,
-        isHidden: job.isHidden,
-        tags: job.tags ? JSON.parse(job.tags) : []
-      }
-
-      const normalizedData = normalizeJobData(job, parsedRawData, parsedRawData2, rawJobObj, job.platform)
-
-      // Salary extraction
-      const salary = String(normalizedData.salaryRange || '')
-      let maxK = -1;
-
-      const kMatches = [...salary.matchAll(/(\d+)\s*[kK]/g)]
-      if (kMatches.length > 0) {
-        maxK = Math.max(...kMatches.map(m => parseInt(m[1], 10)))
-      } else if (salary.includes('万')) {
-        const matches = [...salary.matchAll(/(\d+(\.\d+)?)\s*万/g)]
-        if (matches.length > 0) {
-          maxK = Math.max(...matches.map(m => parseFloat(m[1]) * 10))
-        }
-      } else if (salary.includes('千')) {
-        const matches = [...salary.matchAll(/(\d+(\.\d+)?)\s*千/g)]
-        if (matches.length > 0) {
-          maxK = Math.max(...matches.map(m => parseFloat(m[1])))
+      const kMatch = salaryStr.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)K/)
+      if (kMatch) {
+        maxK = parseFloat(kMatch[2])
+      } else {
+        const wMatch = salaryStr.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)万/)
+        if (wMatch) {
+          maxK = parseFloat(wMatch[2]) * 10
+        } else {
+          const singleKMatch = salaryStr.match(/(\d+(?:\.\d+)?)K/)
+          if (singleKMatch) {
+            maxK = parseFloat(singleKMatch[1])
+          } else {
+            const singleWMatch = salaryStr.match(/(\d+(?:\.\d+)?)万/)
+            if (singleWMatch) {
+              maxK = parseFloat(singleWMatch[1]) * 10
+            } else {
+              const dMatch = salaryStr.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)元\/天/)
+              if (dMatch) {
+                maxK = (parseFloat(dMatch[2]) * 22) / 1000
+              }
+            }
+          }
         }
       }
 
@@ -61,22 +57,44 @@ export default defineEventHandler(async (event) => {
         salaryDist['面议']++
       }
 
-      // Experience extraction
-      let exp = String(normalizedData.experience || '未知')
-      if (exp.includes('3-5') || exp.includes('3年') || exp.includes('4年') || exp.includes('3-4')) exp = '3-5年'
-      else if (exp.includes('1-3') || exp.includes('1年') || exp.includes('2年') || exp.includes('1-2')) exp = '1-3年'
-      else if (exp.includes('5-10') || exp.includes('5年') || exp.includes('6年') || exp.includes('7年') || exp.includes('8年') || exp.includes('9年')) exp = '5-10年'
-      else if (exp.includes('10')) exp = '10年以上'
-      else exp = '其他/不限'
-
+      // 2. 经验要求解析
+      let exp = '其他/不限'
+      const titleExp = job.title + ' ' + (job.tags || '')
+      if (titleExp.includes('3-5') || titleExp.includes('3年') || titleExp.includes('4年') || titleExp.includes('3-4')) {
+        exp = '3-5年'
+      } else if (titleExp.includes('1-3') || titleExp.includes('1年') || titleExp.includes('2年') || titleExp.includes('1-2')) {
+        exp = '1-3年'
+      } else if (titleExp.includes('5-10') || titleExp.includes('5年') || titleExp.includes('6年') || titleExp.includes('7年') || titleExp.includes('8年') || titleExp.includes('9年')) {
+        exp = '5-10年'
+      } else if (titleExp.includes('10年') || titleExp.includes('十年')) {
+        exp = '10年以上'
+      } else if (titleExp.includes('应届') || titleExp.includes('实习') || titleExp.includes('在校')) {
+        exp = '应届/实习'
+      }
       expDist[exp] = (expDist[exp] || 0) + 1
 
-      // Skills extraction
-      const skills = normalizedData.jobTags || []
-      skills.forEach((t: string) => {
-        if (t && t.trim()) {
+      // 3. 技能关键词提取
+      let parsedTags: string[] = []
+      if (job.tags) {
+        try {
+          parsedTags = JSON.parse(job.tags)
+        } catch (e) {
+          parsedTags = []
+        }
+      }
+
+      parsedTags.forEach(t => {
+        if (t && typeof t === 'string' && t.trim() && !['学历不符', '经验不符'].includes(t.trim())) {
           const tag = t.trim()
           skillsDist[tag] = (skillsDist[tag] || 0) + 1
+        }
+      })
+
+      // 从职位标题提取核心高频技术关键词作为词云补充
+      const techKeywords = ['Java', 'Spring', 'SpringBoot', 'SpringCloud', 'Vue', 'React', 'Python', 'Go', 'Golang', 'MySQL', 'Redis', '微服务', 'Kafka', 'Docker', 'K8s', 'Kubernetes', 'MyBatis', '前端', '后端', '全栈', '架构师', '大模型', 'AI', 'Node.js', 'TypeScript', '分布式']
+      techKeywords.forEach(kw => {
+        if (job.title.toLowerCase().includes(kw.toLowerCase())) {
+          skillsDist[kw] = (skillsDist[kw] || 0) + 1
         }
       })
     }

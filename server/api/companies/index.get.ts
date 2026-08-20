@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    // 1. 获取所有存在并且未隐藏的 Job（排除黑名单我们可以在前端或者这里做，这里简单起见抓取所有正常数据）
+    // 1. 获取所有存在并且未隐藏的 Job（按需选择必要字段，不加载沉重的 rawData 以免爆内存和 CPU）
     const jobs = await prisma.job.findMany({
       where: jobWhere,
       select: {
@@ -28,21 +28,27 @@ export default defineEventHandler(async (event) => {
         title: true,
         companyName: true,
         companyFullName: true,
+        companyId: true,
         salary: true,
         location: true,
+        education: true,
         platform: true,
         tags: true,
         updatedAt: true,
-        rawData: true,
-        rawData2: true,
         status: true
       }
     })
 
     const jobIds = jobs.map(j => j.jobId)
-    // 1.1 查询 ai_job_result 数据表，获取ai诊断数据
+
+    // 1.1 查询 ai_job_result 数据表（不使用超长 IN 列表，避免 too many SQL variables 报错）
     const aiResults = await prisma.aiJobResult.findMany({
-      where: { jobId: { in: jobIds } }
+      select: {
+        jobId: true,
+        score: true,
+        matchLevel: true,
+        resultText: true
+      }
     })
     const aiResultMap = Object.fromEntries(aiResults.map(a => [a.jobId, a]))
 
@@ -52,15 +58,13 @@ export default defineEventHandler(async (event) => {
     })
     const blacklistedSet = new Set(blacklisted.map(b => b.companyName))
 
-    const bossJobIds = jobs.filter(j => j.platform === 'Boss直聘').map(j => j.jobId)
-    // 1.3 批量查询关联职位在 job_details 里的数据
+    // 1.3 查询 Boss 详情数据（使用单一 platform 条件代替几千个 IN 变量）
     let bossSingleDetailsMap: Record<string, any> = {}
-    if (bossJobIds.length > 0) {
-      const bossDetails = await prisma.jobDetail.findMany({
-        where: { jobId: { in: bossJobIds }, platform: 'Boss直聘' }
-      })
-      bossSingleDetailsMap = Object.fromEntries(bossDetails.map(d => [d.jobId, d]))
-    }
+    const bossDetails = await prisma.jobDetail.findMany({
+      where: { platform: 'Boss直聘' },
+      select: { jobId: true, rawData: true }
+    })
+    bossSingleDetailsMap = Object.fromEntries(bossDetails.map(d => [d.jobId, d]))
 
     // 2. 构建并查集 (DSU) 合并公司名称和全称相同的记录
     const dsu = {
@@ -159,7 +163,7 @@ export default defineEventHandler(async (event) => {
         node.platformSources.add(job.platform)
       }
 
-      // 处理 tags（在 DB 中是 JSON string，或者原平台数据）
+      // 处理 tags（在 DB 中是 JSON string）
       let parsedTags = []
       try {
         if (job.tags) parsedTags = JSON.parse(job.tags)
@@ -167,27 +171,16 @@ export default defineEventHandler(async (event) => {
         parsedTags = []
       }
 
-      // Fallback tags from rawData if custom tags is empty
-      if (parsedTags.length === 0 && job.rawData) {
-        const raw = JSON.parse(job.rawData)
-        let rawTagsStr = raw['技能标签'] || (raw.jobInfo && raw.jobInfo.showSkills) || ''
-        if (typeof rawTagsStr === 'string' && rawTagsStr) {
-          parsedTags = rawTagsStr.split(',').filter(t => t.trim())
-        }
-      }
-
-      // Add to jobs array
-      const parsedRawData = job.rawData ? JSON.parse(job.rawData) : null
-      let parsedRawData2 = job.rawData2 ? JSON.parse(job.rawData2) : null
+      // 提取 Boss 职位补充详情
       let parsedBossSingleDetail = null;
       if (job.platform === 'Boss直聘' && bossSingleDetailsMap[job.jobId]) {
         try {
           parsedBossSingleDetail = JSON.parse(bossSingleDetailsMap[job.jobId].rawData)
         } catch (e) { }
       }
-      const normalizedData = normalizeJobData(job, parsedRawData, parsedRawData2, node.rawData, parsedBossSingleDetail)
+      const normalizedData = normalizeJobData(job, null, null, node.rawData, parsedBossSingleDetail)
 
-      const { rawData, rawData2, tags, ...jobWithoutRawData } = job as any;
+      const { tags, ...jobWithoutRawData } = job as any;
       let companyWithoutRawData = null;
       if (node) {
         const { rawData: companyRaw, rawData2: companyRaw2, jobs: _jobs, platformSources: _platformSources, ...restCompany } = node as any;

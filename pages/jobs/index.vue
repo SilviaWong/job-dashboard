@@ -84,11 +84,8 @@
                 <el-button type="danger" size="small" @click="openBatchUnsuitableModal">
                   <el-icon><ThumbsDown /></el-icon>&nbsp;批量不合适 ({{ selectedJobIds.length }})
                 </el-button>
-                <el-button type="danger" plain size="small" @click="handleBatchDelete" :loading="batchDeleting">
+                <el-button type="danger" size="small" @click="handleBatchDelete" :loading="batchDeleting">
                   <el-icon><Trash2 /></el-icon>&nbsp;批量删除 ({{ selectedJobIds.length }})
-                </el-button>
-                <el-button size="small" text @click="clearSelection" style="color: #909399;">
-                  清空已选
                 </el-button>
               </template>
 

@@ -71,18 +71,11 @@ export default defineEventHandler(async (event) => {
       aiDiagnosedJobIdsSet = new Set(aiResults.map(r => r.jobId))
     }
     
-    // Missing Boss Detail Filter
+    // Missing Boss Detail Filter (使用 Set 在内存判断，避免 notIn 生成超长 SQL 变量)
+    let missingBossDetailSet = new Set<string>()
     if (filterMissingBossDetail) {
       const bossDetails = await prisma.jobDetail.findMany({ select: { jobId: true }, where: { platform: 'Boss直聘' } })
-      const bossDetailJobIds = bossDetails.map(d => d.jobId)
-      if (bossDetailJobIds.length > 0) {
-        andConditions.push({
-          OR: [
-            { platform: { not: 'Boss直聘' } },
-            { jobId: { notIn: bossDetailJobIds } }
-          ]
-        })
-      }
+      missingBossDetailSet = new Set(bossDetails.map(d => d.jobId))
     }
 
     if (andConditions.length > 0) {
@@ -101,8 +94,6 @@ export default defineEventHandler(async (event) => {
       }
       blacklistedSet = new Set(blacklistedNames)
     } else {
-      // If we are showing blacklisted, we still want to know which ones are blacklisted
-      // for the frontend `isBlacklisted` flag.
       const blacklisted = await prisma.blacklistedCompany.findMany({
         select: { companyName: true }
       })
@@ -110,15 +101,30 @@ export default defineEventHandler(async (event) => {
     }
 
     let totalJobs = 0
-    let jobs = []
+    let jobs: any[] = []
     
-    if (salaryFilter !== 'all' || aiDiagnosisFilter !== 'all') {
-      const allJobs = await prisma.job.findMany({
+    // 如果有前端复杂过滤条件（薪资、AI状态、未抓取详情），采用两阶段查询：第一阶段仅拉取轻量 ID 和薪资/状态字段计算分页，第二阶段仅取当页 20 条详情
+    if (salaryFilter !== 'all' || aiDiagnosisFilter !== 'all' || filterMissingBossDetail) {
+      const allJobStubs = await prisma.job.findMany({
         where: whereClause,
+        select: {
+          id: true,
+          jobId: true,
+          platform: true,
+          salary: true,
+          updatedAt: true
+        },
         orderBy: { updatedAt: 'desc' }
       })
       
-      const filteredJobs = allJobs.filter(job => {
+      const filteredStubs = allJobStubs.filter(job => {
+        // Missing Boss Detail Filter
+        if (filterMissingBossDetail) {
+          if (job.platform === 'Boss直聘' && missingBossDetailSet.has(job.jobId)) {
+            return false
+          }
+        }
+
         // AI Diagnosis Filter
         if (aiDiagnosisFilter === 'diagnosed' && !aiDiagnosedJobIdsSet.has(job.jobId)) {
           return false
@@ -173,8 +179,18 @@ export default defineEventHandler(async (event) => {
         return true
       })
       
-      totalJobs = filteredJobs.length
-      jobs = filteredJobs.slice((page - 1) * pageSize, page * pageSize)
+      totalJobs = filteredStubs.length
+      const pagedStubs = filteredStubs.slice((page - 1) * pageSize, page * pageSize)
+      const pagedIds = pagedStubs.map(s => s.id)
+
+      if (pagedIds.length > 0) {
+        jobs = await prisma.job.findMany({
+          where: { id: { in: pagedIds } },
+          orderBy: { updatedAt: 'desc' }
+        })
+      } else {
+        jobs = []
+      }
     } else {
       totalJobs = await prisma.job.count({
         where: whereClause
