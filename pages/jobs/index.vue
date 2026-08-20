@@ -84,6 +84,9 @@
                 <el-button type="danger" size="small" @click="openBatchUnsuitableModal">
                   <el-icon><ThumbsDown /></el-icon>&nbsp;批量不合适 ({{ selectedJobIds.length }})
                 </el-button>
+                <el-button type="danger" plain size="small" @click="handleBatchDelete" :loading="batchDeleting">
+                  <el-icon><Trash2 /></el-icon>&nbsp;批量删除 ({{ selectedJobIds.length }})
+                </el-button>
                 <el-button size="small" text @click="clearSelection" style="color: #909399;">
                   清空已选
                 </el-button>
@@ -302,6 +305,7 @@ const batchOpenCancelled = ref(false)
 // 批量选择与操作状态
 const selectedJobIds = ref([])
 const batchFavoriting = ref(false)
+const batchDeleting = ref(false)
 const isBatchUnsuitable = ref(false)
 
 const isAllSelected = computed(() => {
@@ -744,6 +748,53 @@ const handleBatchFavorite = async (isFavorited = true) => {
     ElMessage.error('批量收藏发生异常')
   } finally {
     batchFavoriting.value = false
+  }
+}
+
+// 批量物理删除
+const handleBatchDelete = async () => {
+  if (selectedJobIds.value.length === 0) {
+    ElMessage.warning('请先勾选需要操作的职位')
+    return
+  }
+
+  const count = selectedJobIds.value.length
+  try {
+    await ElMessageBox.confirm(
+      `确定要彻底删除已选中的 ${count} 个职位吗？此操作将永久删除数据，不可恢复！`,
+      '批量删除确认',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+
+    batchDeleting.value = true
+    const res = await $fetch('/api/jobs/batch', {
+      method: 'DELETE',
+      body: {
+        ids: selectedJobIds.value
+      }
+    })
+
+    if (res && res.success) {
+      ElMessage.success(`已成功删除 ${res.count ?? count} 个职位`)
+      const deletedSet = new Set(selectedJobIds.value)
+      jobList.value = jobList.value.filter(job => !deletedSet.has(job.id))
+      total.value = Math.max(0, total.value - (res.count ?? count))
+      selectedJobIds.value = []
+    } else {
+      ElMessage.error(res?.error || res?.message || '批量删除失败')
+    }
+  } catch (e) {
+    if (e !== 'cancel') {
+      console.error('Batch delete error:', e)
+      ElMessage.error('批量删除操作出错')
+    }
+  } finally {
+    batchDeleting.value = false
   }
 }
 
