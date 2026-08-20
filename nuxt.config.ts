@@ -6,6 +6,7 @@ const currentDir = dirname(fileURLToPath(import.meta.url))
 const isCloudflare = process.env.CF_PAGES === '1' || process.env.NITRO_PRESET === 'cloudflare-pages' || process.env.USE_D1 === 'true'
 
 export default defineNuxtConfig({
+  ssr: false, // 启用纯客户端渲染 (SPA)，避免 Edge 端 SSR 耗尽 128MB 内存触发 Error 1102
   nitro: {
     experimental: { wasm: true }
   },
