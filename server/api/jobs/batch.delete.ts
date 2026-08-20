@@ -1,21 +1,30 @@
 import { getPrisma } from '#prisma'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody(event)
-  const prisma = getPrisma(event)
-
-  if (!body || !Array.isArray(body.ids) || body.ids.length === 0) {
-    return { success: false, message: 'Missing or invalid ids' }
-  }
-
   try {
-    const ids: string[] = body.ids
-    let totalDeleted = 0
+    const body = await readBody(event).catch(() => null)
+    const prisma = getPrisma(event)
 
-    // 分批处理，防止超过 SQLite/D1 的参数上限
-    const chunkSize = 200
+    const ids = body?.ids
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return { success: false, message: 'Missing or invalid ids' }
+    }
+
+    let totalDeleted = 0
+    const chunkSize = 100
     for (let i = 0; i < ids.length; i += chunkSize) {
       const chunkIds = ids.slice(i, i + chunkSize)
+      
+      // 1. 安全删除强关联子表记录 (如 Interview)
+      try {
+        await prisma.interview.deleteMany({
+          where: { jobId: { in: chunkIds } }
+        })
+      } catch (e) {
+        // ignore
+      }
+
+      // 2. 批量删除职位
       const result = await prisma.job.deleteMany({
         where: {
           id: { in: chunkIds }
@@ -26,6 +35,7 @@ export default defineEventHandler(async (event) => {
 
     return { success: true, count: totalDeleted }
   } catch (error: any) {
-    return { success: false, error: error.message }
+    console.error('Batch delete error:', error)
+    return { success: false, error: error?.message || String(error) }
   }
 })
