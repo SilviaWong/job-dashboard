@@ -322,16 +322,72 @@ const getScoreColor = (score, isTag = false) => {
 
 const formatDesc = (desc) => {
   if (!desc) return '暂无描述'
-  return String(desc)
+  let str = String(desc)
+    .replace(/\\r\\n|\\r|\\n/g, '\n')
+    .replace(/\r\n|\r/g, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/?p[^>]*>/gi, '\n')
-    .replace(/<\/div>\s*<div[^>]*>/gi, '\n')
-    .replace(/<\/?div[^>]*>/gi, '\n')
-    .replace(/\\n/g, '\n')
-    .replace(/\\r/g, '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '\n• ')
+    .replace(/<\/?(ul|ol|div|h[1-6])[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+
+  const rawLines = str.split('\n')
+  const cleanedLines = []
+
+  for (let i = 0; i < rawLines.length; i++) {
+    let line = rawLines[i].replace(/[ \t]+/g, ' ').trim()
+    if (!line) continue
+
+    if (line === '•' || line === '-' || line === '·') {
+      let nextIndex = i + 1
+      while (nextIndex < rawLines.length && !rawLines[nextIndex].trim()) {
+        nextIndex++
+      }
+      if (nextIndex < rawLines.length) {
+        const nextContent = rawLines[nextIndex].replace(/[ \t]+/g, ' ').trim()
+        if (nextContent) {
+          if (/^(\d+[\.、\)]|[一二三四五六七八九十]+[、\.])/.test(nextContent)) {
+            cleanedLines.push(nextContent)
+          } else {
+            cleanedLines.push(`• ${nextContent}`)
+          }
+          i = nextIndex
+          continue
+        }
+      }
+      continue
+    }
+
+    if (/^•\s*(\d+[\.、\)]|[一二三四五六七八九十]+[、\.])/.test(line)) {
+      line = line.replace(/^•\s*/, '')
+    } else if (line.startsWith('•') && !line.startsWith('• ')) {
+      line = '• ' + line.substring(1).trim()
+    }
+
+    cleanedLines.push(line)
+  }
+
+  const formattedLines = []
+  const sectionKeywords = /^(岗位职责|任职要求|任职资格|职位要求|职位亮点|岗位要求|工作内容|加分项|福利待遇|我们提供|基本条件|软素质|其他要求|工作职责)[:：]?$/
+
+  for (let i = 0; i < cleanedLines.length; i++) {
+    const line = cleanedLines[i]
+    if (i > 0 && sectionKeywords.test(line)) {
+      if (formattedLines.length > 0 && formattedLines[formattedLines.length - 1] !== '') {
+        formattedLines.push('')
+      }
+    }
+    formattedLines.push(line)
+  }
+
+  return formattedLines.join('\n') || '暂无描述'
 }
 
 const formatAiAnalysis = (text) => {

@@ -47,7 +47,6 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { useFetch } from '#app'
 
 // Echarts setup
 import { use } from 'echarts/core'
@@ -81,12 +80,12 @@ onMounted(async () => {
     // Dynamically import echarts-wordcloud on the client side to prevent SSR errors
     await import('echarts-wordcloud')
     
-    const { data: response } = await useFetch('/api/dashboard')
-    if (response.value?.success) {
-      statsData.value = response.value.data
-      totalJobs.value = response.value.data.totalJobs
+    const response = await $fetch('/api/dashboard')
+    if (response?.success) {
+      statsData.value = response.data
+      totalJobs.value = response.data.totalJobs
     } else {
-      error.value = response.value?.error || 'Failed to fetch dashboard data'
+      error.value = response?.error || 'Failed to fetch dashboard data'
     }
   } catch (e) {
     error.value = e.message

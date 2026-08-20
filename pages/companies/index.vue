@@ -6,11 +6,29 @@
           <span style="font-size: 18px; font-weight: 600;">🏢 企业全景</span>
           <div style="display: flex; gap: 16px; align-items: center;">
             <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 14px; color: #606266;">类型:</span>
+              <el-radio-group v-model="agencyFilter" size="small" @change="() => fetchCompanies(false)">
+                <el-radio-button value="direct">直招</el-radio-button>
+                <el-radio-button value="agency">代招</el-radio-button>
+                <el-radio-button value="all">全部</el-radio-button>
+              </el-radio-group>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
               <span style="font-size: 14px; color: #606266;">职位状态:</span>
               <el-radio-group v-model="status" size="small" @change="() => fetchCompanies(false)">
                 <el-radio-button value="all">全部</el-radio-button>
                 <el-radio-button value="normal">常规</el-radio-button>
               </el-radio-group>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 14px; color: #606266;">平台:</span>
+              <el-select v-model="platformFilter" size="small" style="width: 110px;" @change="() => fetchCompanies(false)">
+                <el-option label="全部" value="all" />
+                <el-option label="Boss直聘" value="Boss直聘" />
+                <el-option label="前程无忧" value="51job" />
+                <el-option label="猎聘" value="猎聘" />
+                <el-option label="智联招聘" value="智联" />
+              </el-select>
             </div>
             <el-input
               v-model="searchQuery"
@@ -43,7 +61,15 @@
             <template #title>
               <div class="company-title-wrapper">
                 <div class="company-title">
-                  <span class="company-name">{{ company.companyName }}</span>
+                  <span class="company-name" :class="{'is-agency-name': company.isAgency}">{{ company.companyName }}</span>
+                  <el-switch
+                    v-model="company.isAgency"
+                    inline-prompt
+                    active-text="代招/猎头"
+                    inactive-text="直招"
+                    style="margin-left: 10px; margin-right: 10px;"
+                    @change="toggleAgency(company)"
+                  />
                   <el-tag size="small" type="info" v-if="company.rawData?.industry">
                     {{ company.rawData.industry }}
                   </el-tag>
@@ -168,6 +194,8 @@ const page = ref(1)
 const pageSize = ref(12)
 const hasMore = ref(true)
 const status = ref('normal')
+const agencyFilter = ref('direct')
+const platformFilter = ref('all')
 
 const jobDetailDrawerRef = ref(null)
 
@@ -223,6 +251,27 @@ const handleJobStatusChange = (jobData, status) => {
   }
 }
 
+const toggleAgency = async (company) => {
+  try {
+    const res = await $fetch('/api/companies/agency', {
+      method: 'PUT',
+      body: {
+        companyName: company.companyName,
+        isAgency: company.isAgency
+      }
+    })
+    if (res.success) {
+      ElMessage.success(`已标记 ${company.companyName} 为 ${company.isAgency ? '代招/猎头' : '直招'}`)
+    } else {
+      company.isAgency = !company.isAgency
+      ElMessage.error(res.error || '操作失败')
+    }
+  } catch (error) {
+    company.isAgency = !company.isAgency
+    ElMessage.error('操作失败')
+  }
+}
+
 const fetchCompanies = async (isLoadMore = false) => {
   if (loading.value) return
   
@@ -238,7 +287,9 @@ const fetchCompanies = async (isLoadMore = false) => {
         page: page.value,
         pageSize: pageSize.value,
         query: searchQuery.value,
-        status: status.value
+        status: status.value,
+        agencyFilter: agencyFilter.value,
+        platformFilter: platformFilter.value
       }
     })
     if (res.success) {
@@ -327,6 +378,9 @@ onUnmounted(() => {
   font-size: 16px;
   font-weight: 600;
   color: #303133;
+}
+.is-agency-name {
+  color: #c2185b !important;
 }
 .company-content {
   padding: 10px 15px;

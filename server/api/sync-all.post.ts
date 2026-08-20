@@ -178,16 +178,17 @@ export default defineEventHandler(async (event) => {
       try {
         await prisma.company.upsert({
           where: {
-            companyName_sourcePlatform: {
+            companyName_sourcePlatform_companyId: {
               companyName: cName.trim(),
-              sourcePlatform: platform
+              sourcePlatform: platform,
+              companyId: companyId ? String(companyId) : null
             }
           },
-          update: { rawData: JSON.stringify(rawData), companyId },
+          update: { rawData: JSON.stringify(rawData), companyId: companyId ? String(companyId) : null },
           create: {
             companyName: cName.trim(),
             sourcePlatform: platform,
-            companyId,
+            companyId: companyId ? String(companyId) : null,
             rawData: JSON.stringify(rawData)
           }
         })

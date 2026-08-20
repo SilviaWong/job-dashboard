@@ -20,6 +20,7 @@ model Job {
   companyId       String?
   salary          String
   location        String
+  education       String?
   platform        String
   status          String   @default("normal")
   rawData         String
@@ -47,6 +48,7 @@ model AiJobResult {
   matchLevel   String?
   resultText   String?
   intro        String?
+  predictedQuestions String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
@@ -60,10 +62,11 @@ model Company {
   sourcePlatform  String
   rawData         String?  // 保存抓取到的完整工商信息JSON
   rawData2        String?  // 保存抓取到的第二来源的完整工商信息JSON
+  isAgency        Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  @@unique([companyName, sourcePlatform])
+  @@unique([companyName, sourcePlatform, companyId])
 }
 
 model Interview {
@@ -84,16 +87,29 @@ model BlacklistedCompany {
   createdAt   DateTime @default(now())
 }
 
-model QuestionBank {
-  id            String   @id @default(uuid())
-  serialNo      Int?
-  title         String
-  themeCategory String?
-  subCategory   String?
-  tags          String?  // JSON string
-  answer        String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+model StandardQuestion {
+  id              String   @id @default(uuid())
+  title           String
+  domain          String?
+  categoryTags    String?
+  corePoints      String?
+  answerKey       String?
+  aiAnswer        String?
+  tags            String?  // JSON string
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  variants        QuestionVariant[]
+}
+
+model QuestionVariant {
+  id                 String           @id @default(uuid())
+  standardQuestionId String
+  standardQuestion   StandardQuestion @relation(fields: [standardQuestionId], references: [id], onDelete: Cascade)
+  serialNo           Int?
+  title              String
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 }
 
 model AiSettings {
@@ -119,4 +135,27 @@ model BossSingleDetail {
   updatedAt DateTime @updatedAt
 
   @@map("boss_single_details")
+}
+
+model JobDetail {
+  id        String   @id @default(uuid())
+  jobId     String
+  platform  String
+  rawData   String   // JSON string
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([jobId, platform])
+  @@map("job_details")
+}
+
+model AiSkill {
+  id              String   @id @default(uuid())
+  name            String
+  description     String?
+  systemPrompt    String
+  userPrompt      String
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }

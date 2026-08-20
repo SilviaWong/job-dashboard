@@ -1,4 +1,5 @@
 import type { JobProcessor } from './types'
+import { cleanCompanyName } from '../companyProcessors/types'
 
 export const process51Job: JobProcessor = async (job, platform, prisma) => {
   // 解析 51job 的职位数据
@@ -69,7 +70,11 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
   })
 
   // 再保存公司数据
-  if (companyName || companyId) {
+  // 对公司名称和公司全称进行中文括号转英文括号，以及去除空格的处理
+  const cleanName = cleanCompanyName(companyName)
+  const cleanFullName = cleanCompanyName(companyFullName)
+
+  if (cleanName || companyId) {
     //根据公司id或者公司名称去查找，先通过id查找，如果没有则通过名称查找，如果有的话更新，没有的话创建
     //因为抓取的数据存在公司id为空的情况，所以如果companyId为空的话，就只有通过公司名称查找
     let existingCompany = null
@@ -78,9 +83,9 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
         where: { companyId: String(companyId), sourcePlatform: '51job' }
       })
     }
-    if (!existingCompany && companyName) {
+    if (!existingCompany && cleanName) {
       existingCompany = await prisma.company.findFirst({
-        where: { companyName: String(companyName), sourcePlatform: '51job' }
+        where: { companyName: cleanName, sourcePlatform: '51job' }
       })
     }
 
@@ -88,21 +93,23 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
     const companyUpdateData = {
       rawData: JSON.stringify(companyRawData),
       companyId: companyId ? String(companyId) : '',
-      companyFullName: companyFullName ? String(companyFullName) : '',
+      companyFullName: cleanFullName ? String(cleanFullName) : '',
       updatedAt: updatedAt
     }
 
     if (existingCompany) {
-      await prisma.company.update({
-        where: { id: existingCompany.id },
-        data: companyUpdateData
-      })
-    } else if (companyName) {
+      // 场景 A：公司已存在，不更新数据
+      // await prisma.company.update({
+      //   where: { id: existingCompany.id },
+      //   data: companyUpdateData
+      // })
+    } else if (cleanName) {
+      // 场景 B：公司不存在，尝试新建
       try {
         await prisma.company.create({
           data: {
-            companyName: String(companyName),
-            companyFullName: companyFullName ? String(companyFullName) : '',
+            companyName: cleanName,
+            companyFullName: cleanFullName ? String(cleanFullName) : '',
             sourcePlatform: '51job',
             companyId: companyId ? String(companyId) : '',
             rawData: JSON.stringify(companyRawData),
@@ -111,9 +118,12 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
           }
         })
       } catch (err: any) {
+        // 异常处理：捕获高并发下的唯一键冲突 (P2002)
+        // 比如两个请求同时发现公司不存在，同时执行 create，第二个就会报错 P2002
         if (err.code === 'P2002') {
+          // 既然冲突了，说明刚刚有别的请求创建了它，那我们再查一次把它找出来
           const newlyInserted = await prisma.company.findFirst({
-            where: { companyName: String(companyName), sourcePlatform: '51job' }
+            where: { companyName: cleanName, sourcePlatform: '51job' }
           })
           if (newlyInserted) {
             await prisma.company.update({

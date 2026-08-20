@@ -1,4 +1,5 @@
 import type { JobProcessor } from './types'
+import { cleanCompanyName } from '../companyProcessors/types'
 
 // 解析 Boss直聘 的职位数据
 export const processBossJob: JobProcessor = async (job, platform, prisma) => {
@@ -35,6 +36,10 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
     // companyId = ''
   }
 
+  // 对公司名称和公司全称进行中文括号转英文括号，以及去除空格的处理
+  const cleanName = cleanCompanyName(companyName)
+  const cleanFullName = cleanCompanyName(companyFullName)
+
   const stringifiedData = JSON.stringify(job)
   const createdAt = new Date()
   const updatedAt = new Date()
@@ -42,8 +47,8 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
   // 组装职位更新数据
   const updateData: any = {
     title: String(jobTitle),
-    companyName: String(companyName),
-    companyFullName: String(companyFullName),
+    companyName: String(cleanName),
+    companyFullName: String(cleanFullName),
     companyId: companyId ? String(companyId) : null,
     salary: String(salary),
     location: String(location),
@@ -56,8 +61,8 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
   const createData: any = {
     jobId: String(jobId),
     title: String(jobTitle),
-    companyName: String(companyName),
-    companyFullName: String(companyFullName),
+    companyName: String(cleanName),
+    companyFullName: String(cleanFullName),
     companyId: companyId ? String(companyId) : null,
     salary: String(salary),
     location: String(location),
@@ -91,7 +96,7 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
     sourcePlatform: 'Boss直聘'
   }
 
-  if (companyName || companyId) {
+  if (cleanName || companyId) {
     //根据公司id或者公司名称去查找，先通过id查找，如果没有则通过名称查找，如果有的话更新，没有的话创建
     //因为抓取的数据存在公司id为空的情况，所以如果companyId为空的话，就只有通过公司名称查找
     let existingCompany = null
@@ -103,32 +108,32 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
       })
     }
     // 第二步：如果没有 ID 或者按 ID 没找到，尝试通过公司名称查找（兜底方案）
-    if (!existingCompany && companyName) {
+    if (!existingCompany && cleanName) {
       existingCompany = await prisma.company.findFirst({
-        where: { companyName: String(companyName), sourcePlatform: 'Boss直聘' }
+        where: { companyName: cleanName, sourcePlatform: 'Boss直聘' }
       })
     }
 
     const companyUpdateData = {
       rawData: JSON.stringify(companyRawData),
       companyId: companyId ? String(companyId) : undefined,
-      companyFullName: companyFullName ? String(companyFullName) : undefined
+      companyFullName: cleanFullName ? String(cleanFullName) : undefined
     }
 
     // 第三步：执行入库操作
     if (existingCompany) {
-      // 场景 A：公司已存在，直接更新数据
-      await prisma.company.update({
-        where: { id: existingCompany.id },
-        data: companyUpdateData
-      })
-    } else if (companyName) {
+      // 场景 A：公司已存在，不更新数据
+      // await prisma.company.update({
+      //   where: { id: existingCompany.id },
+      //   data: companyUpdateData
+      // })
+    } else if (cleanName) {
       // 场景 B：公司不存在，尝试新建
       try {
         await prisma.company.create({
           data: {
-            companyName: String(companyName),
-            companyFullName: companyFullName ? String(companyFullName) : undefined,
+            companyName: cleanName,
+            companyFullName: cleanFullName ? String(cleanFullName) : undefined,
             sourcePlatform: 'Boss直聘',
             companyId: companyId ? String(companyId) : undefined,
             rawData: JSON.stringify(companyRawData)
@@ -140,7 +145,7 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
         if (err.code === 'P2002') {
           // 既然冲突了，说明刚刚有别的请求创建了它，那我们再查一次把它找出来
           const newlyInserted = await prisma.company.findFirst({
-            where: { companyName: String(companyName), sourcePlatform: 'Boss直聘' }
+            where: { companyName: cleanName, sourcePlatform: 'Boss直聘' }
           })
           if (newlyInserted) {
             // 转为更新操作

@@ -54,6 +54,13 @@
           
           <div class="toolbar-row bottom-row">
             <div class="filters-checkboxes">
+              <el-checkbox 
+                :model-value="isAllSelected" 
+                :indeterminate="isIndeterminate" 
+                @change="handleSelectAll"
+              >
+                全选 <span v-if="selectedJobIds.length > 0">({{ selectedJobIds.length }}/{{ jobList.length }})</span>
+              </el-checkbox>
               <el-checkbox v-model="filterFavoritesOnly" @change="() => fetchJobs(false)">
                 <el-icon><Star /></el-icon> 只看收藏
               </el-checkbox>
@@ -69,6 +76,19 @@
             </div>
             
             <div class="actions">
+              <!-- 批量操作专区 (当勾选了职位时高亮显示) -->
+              <template v-if="selectedJobIds.length > 0">
+                <el-button type="warning" size="small" @click="handleBatchFavorite(true)" :loading="batchFavoriting">
+                  <el-icon><Star /></el-icon>&nbsp;批量收藏 ({{ selectedJobIds.length }})
+                </el-button>
+                <el-button type="danger" size="small" @click="openBatchUnsuitableModal">
+                  <el-icon><ThumbsDown /></el-icon>&nbsp;批量不合适 ({{ selectedJobIds.length }})
+                </el-button>
+                <el-button size="small" text @click="clearSelection" style="color: #909399;">
+                  清空已选
+                </el-button>
+              </template>
+
               <el-button v-if="!batchAnalyzing" type="success" size="small" @click="handleBatchAiDiagnosis" :disabled="loading">
                 <el-icon><Bot /></el-icon>&nbsp;批量 AI 诊断
               </el-button>
@@ -102,11 +122,17 @@
             v-for="job in jobList" 
             :key="job.id || job.jobId"
             :id="'job-card-' + job.jobId"
-            :class="{'is-blacklisted': job.isBlacklisted, 'is-hidden': job.isHidden}"
+            :class="{'is-blacklisted': job.isBlacklisted, 'is-hidden': job.isHidden, 'is-selected': selectedJobIds.includes(job.id)}"
             @click="viewDetails(job)"
           >
-            <!-- Header: Title & Salary -->
+            <!-- Header: Selection Checkbox + Title & Salary -->
             <div class="job-header">
+              <div class="job-select-checkbox" @click.stop>
+                <el-checkbox
+                  :model-value="selectedJobIds.includes(job.id)"
+                  @change="(val) => handleJobCheckChange(job.id, val)"
+                />
+              </div>
               <span class="job-title">{{ job.title }}</span>
               <span class="job-salary">{{ job.salary }}</span>
               
@@ -209,8 +235,13 @@
       </client-only>
     </el-card>
 
-    <!-- 不合适标签弹窗 -->
-    <el-dialog v-model="unsuitableModalVisible" title="标记为不合适" width="400px" destroy-on-close>
+    <!-- 不合适标签弹窗 (支持单选与批量) -->
+    <el-dialog 
+      v-model="unsuitableModalVisible" 
+      :title="isBatchUnsuitable ? `批量标记为不合适 (已选 ${selectedJobIds.length} 个职位)` : '标记为不合适'" 
+      width="400px" 
+      destroy-on-close
+    >
       <div style="margin-bottom: 15px; color: #7f8c8d; font-size: 14px;">选择或输入不合适的原因：</div>
       <div style="display: flex; flex-wrap: wrap; gap: 8px;">
         <el-button 
@@ -255,7 +286,7 @@
 </template>
 
 <script setup>
-import { shallowRef, ref, onMounted, onUnmounted, watch } from 'vue'
+import { shallowRef, ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { JobStatus } from '~/utils/enums'
 import { Star, Eye, Ban, ThumbsDown, Trash2, Calendar, Bot, ExternalLink, Loader2, Copy } from 'lucide-vue-next'
@@ -267,6 +298,41 @@ const batchAnalyzing = ref(false)
 const batchCancelled = ref(false)
 const batchOpening = ref(false)
 const batchOpenCancelled = ref(false)
+
+// 批量选择与操作状态
+const selectedJobIds = ref([])
+const batchFavoriting = ref(false)
+const isBatchUnsuitable = ref(false)
+
+const isAllSelected = computed(() => {
+  return jobList.value.length > 0 && selectedJobIds.value.length === jobList.value.length
+})
+
+const isIndeterminate = computed(() => {
+  return selectedJobIds.value.length > 0 && selectedJobIds.value.length < jobList.value.length
+})
+
+const handleSelectAll = (val) => {
+  if (val) {
+    selectedJobIds.value = jobList.value.map(j => j.id)
+  } else {
+    selectedJobIds.value = []
+  }
+}
+
+const handleJobCheckChange = (jobId, val) => {
+  if (val) {
+    if (!selectedJobIds.value.includes(jobId)) {
+      selectedJobIds.value = [...selectedJobIds.value, jobId]
+    }
+  } else {
+    selectedJobIds.value = selectedJobIds.value.filter(id => id !== jobId)
+  }
+}
+
+const clearSelection = () => {
+  selectedJobIds.value = []
+}
 
 const page = ref(1)
 const pageSize = ref(20)
@@ -294,6 +360,7 @@ const fetchJobs = async (isLoadMore = false) => {
   if (!isLoadMore) {
     page.value = 1
     hasMore.value = true
+    selectedJobIds.value = []
   }
   
   if (!hasMore.value) return
@@ -642,6 +709,44 @@ const toggleFavorite = async (job) => {
   }
 }
 
+// 批量收藏 / 批量取消收藏
+const handleBatchFavorite = async (isFavorited = true) => {
+  if (selectedJobIds.value.length === 0) {
+    ElMessage.warning('请先勾选需要操作的职位')
+    return
+  }
+
+  batchFavoriting.value = true
+  try {
+    const res = await $fetch('/api/jobs/batch', {
+      method: 'PUT',
+      body: {
+        ids: selectedJobIds.value,
+        isFavorited: isFavorited
+      }
+    })
+    
+    if (res && res.success) {
+      ElMessage.success(`已成功批量${isFavorited ? '收藏' : '取消收藏'} ${res.count || selectedJobIds.value.length} 个职位`)
+      const updatedSet = new Set(selectedJobIds.value)
+      jobList.value.forEach(job => {
+        if (updatedSet.has(job.id)) {
+          job.isFavorited = isFavorited
+        }
+      })
+      jobList.value = [...jobList.value]
+      selectedJobIds.value = []
+    } else {
+      ElMessage.error(res?.error || res?.message || '批量收藏失败')
+    }
+  } catch (err) {
+    console.error('Batch favorite error:', err)
+    ElMessage.error('批量收藏发生异常')
+  } finally {
+    batchFavoriting.value = false
+  }
+}
+
 const handleAiDiagnosis = async (job) => {
   if (analyzingIds.value.includes(job.jobId)) return
   
@@ -670,12 +775,13 @@ const handleAiDiagnosis = async (job) => {
 // 不合适标签弹窗逻辑
 const unsuitableModalVisible = ref(false)
 const currentTaggingJob = ref(null)
-const predefinedTags = ['学历不符', '经验不符', '薪资太低', '外包岗位', '距离太远', '需要外语','岗位与职责不符']
+const predefinedTags = ['学历不符', '经验不符', '薪资太低', '外包岗位', '距离太远', '需要外语', '岗位与职责不符']
 const selectedTags = ref([])
 const customTagInput = ref('')
 const savingTags = ref(false)
 
 const openUnsuitableModal = (job) => {
+  isBatchUnsuitable.value = false
   currentTaggingJob.value = job
   selectedTags.value = []
   if (job.tags) {
@@ -686,6 +792,18 @@ const openUnsuitableModal = (job) => {
       }
     } catch(e) {}
   }
+  customTagInput.value = ''
+  unsuitableModalVisible.value = true
+}
+
+const openBatchUnsuitableModal = () => {
+  if (selectedJobIds.value.length === 0) {
+    ElMessage.warning('请先勾选需要操作的职位')
+    return
+  }
+  isBatchUnsuitable.value = true
+  currentTaggingJob.value = null
+  selectedTags.value = []
   customTagInput.value = ''
   unsuitableModalVisible.value = true
 }
@@ -711,33 +829,70 @@ const removeTag = (tag) => {
 }
 
 const saveUnsuitableTags = async () => {
-  if (!currentTaggingJob.value) return
   savingTags.value = true
   try {
-    const res = await $fetch(`/api/jobs/${currentTaggingJob.value.id}`, {
-      method: 'PUT',
-      body: {
-        isHidden: true,
-        tags: selectedTags.value
+    if (isBatchUnsuitable.value) {
+      // 批量标记不合适
+      if (selectedJobIds.value.length === 0) return
+      const res = await $fetch('/api/jobs/batch', {
+        method: 'PUT',
+        body: {
+          ids: selectedJobIds.value,
+          isHidden: true,
+          tags: selectedTags.value
+        }
+      })
+
+      if (res && res.success) {
+        ElMessage.success(`已成功将 ${res.count || selectedJobIds.value.length} 个职位标记为不合适并隐藏`)
+        const hiddenSet = new Set(selectedJobIds.value)
+
+        jobList.value.forEach(job => {
+          if (hiddenSet.has(job.id)) {
+            job.isHidden = true
+            job.tags = [...selectedTags.value]
+          }
+        })
+
+        if (!filterShowHidden.value) {
+          jobList.value = jobList.value.filter(j => !hiddenSet.has(j.id))
+        } else {
+          jobList.value = [...jobList.value]
+        }
+
+        selectedJobIds.value = []
+        unsuitableModalVisible.value = false
+      } else {
+        ElMessage.error(res?.error || res?.message || '批量标记失败')
       }
-    })
-    
-    if (res && res.success) {
-      ElMessage.success('标记成功并已隐藏职位')
-      currentTaggingJob.value.isHidden = true
-      currentTaggingJob.value.tags = [...selectedTags.value]
-      
-      if (!filterShowHidden.value) {
-        jobList.value = jobList.value.filter(j => j.jobId !== currentTaggingJob.value.jobId)
-      }
-      
-      unsuitableModalVisible.value = false
     } else {
-      ElMessage.error(res?.error || res?.message || '保存失败')
+      // 单个标记不合适
+      if (!currentTaggingJob.value) return
+      const res = await $fetch(`/api/jobs/${currentTaggingJob.value.id}`, {
+        method: 'PUT',
+        body: {
+          isHidden: true,
+          tags: selectedTags.value
+        }
+      })
+      
+      if (res && res.success) {
+        ElMessage.success('标记成功并已隐藏职位')
+        currentTaggingJob.value.isHidden = true
+        currentTaggingJob.value.tags = [...selectedTags.value]
+        
+        if (!filterShowHidden.value) {
+          jobList.value = jobList.value.filter(j => j.jobId !== currentTaggingJob.value.jobId)
+        }
+        
+        unsuitableModalVisible.value = false
+      } else {
+        ElMessage.error(res?.error || res?.message || '保存失败')
+      }
     }
   } catch (error) {
     console.error('Failed to save unsuitable tags:', error)
-    ElMessage.error('保存失败')
+    ElMessage.error('操作失败')
   } finally {
     savingTags.value = false
   }
@@ -901,7 +1056,19 @@ onUnmounted(() => {
   opacity: 0.6;
   background: #fffafa;
 }
+.job-card-wide.is-selected {
+  border: 1.5px solid var(--primary-color, #007AFF) !important;
+  background: #f0f7ff;
+}
 
+.job-select-checkbox {
+  display: flex;
+  align-items: center;
+  margin-right: 4px;
+}
+:deep(.job-select-checkbox .el-checkbox) {
+  height: auto;
+}
 
 .card-score-badge {
   position: absolute;

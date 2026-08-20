@@ -87,6 +87,97 @@ const extractZhilianTags = createTagExtractor(['name', 'value', 'itemValue', 'ta
 const extractLiepinTags = createTagExtractor(['tagName', 'name', 'label']);
 const extractFallbackTags = createTagExtractor(['name', 'label']);
 
+/** 清洗 HTML 标签，转换为格式整齐、排版优美的纯文本 */
+export function cleanHtmlText(text: any): string {
+  if (!text) return '暂无描述';
+  let str = String(text);
+
+  // 1. 规范化换行符与转义字符
+  str = str
+    .replace(/\\r\\n|\\r|\\n/g, '\n')
+    .replace(/\r\n|\r/g, '\n');
+
+  // 2. 转换常见 HTML 换行与列表标签
+  str = str
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/?p[^>]*>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '\n• ')
+    .replace(/<\/?(ul|ol|div|h[1-6])[^>]*>/gi, '\n');
+
+  // 3. 移除其它所有 HTML 标签
+  str = str.replace(/<[^>]+>/g, '');
+
+  // 4. 实体字符反转义
+  str = str
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+
+  // 5. 逐行清理空格、合并孤立的 bullet 和序号
+  const rawLines = str.split('\n');
+  const cleanedLines: string[] = [];
+
+  for (let i = 0; i < rawLines.length; i++) {
+    let line = rawLines[i].replace(/[ \t]+/g, ' ').trim();
+    if (!line) continue;
+
+    // 如果当前行仅仅是 bullet "•"、"-" 或 "·"
+    if (line === '•' || line === '-' || line === '·') {
+      // 寻找下一个非空行进行合并
+      let nextIndex = i + 1;
+      while (nextIndex < rawLines.length && !rawLines[nextIndex].trim()) {
+        nextIndex++;
+      }
+      if (nextIndex < rawLines.length) {
+        const nextContent = rawLines[nextIndex].replace(/[ \t]+/g, ' ').trim();
+        if (nextContent) {
+          // 如果下一行已经带有序号（如 1. 或 1、），则直接使用，无需加 •
+          if (/^(\d+[\.、\)]|[一二三四五六七八九十]+[、\.])/.test(nextContent)) {
+            cleanedLines.push(nextContent);
+          } else {
+            cleanedLines.push(`• ${nextContent}`);
+          }
+          i = nextIndex;
+          continue;
+        }
+      }
+      continue;
+    }
+
+    // 如果行首是 • 后面带有序号，去掉多余的 •
+    if (/^•\s*(\d+[\.、\)]|[一二三四五六七八九十]+[、\.])/.test(line)) {
+      line = line.replace(/^•\s*/, '');
+    } else if (line.startsWith('•') && !line.startsWith('• ')) {
+      line = '• ' + line.substring(1).trim();
+    }
+
+    cleanedLines.push(line);
+  }
+
+  // 6. 段落排版优化：在主要段落/标题前保留一个空行
+  const formattedLines: string[] = [];
+  const sectionKeywords = /^(岗位职责|任职要求|任职资格|职位要求|职位亮点|岗位要求|工作内容|加分项|福利待遇|我们提供|基本条件|软素质|其他要求|工作职责)[:：]?$/;
+
+  for (let i = 0; i < cleanedLines.length; i++) {
+    const line = cleanedLines[i];
+
+    // 如果是小标题或主要段落，且前置非空行，增加一行空行增加层次感
+    if (i > 0 && sectionKeywords.test(line)) {
+      if (formattedLines.length > 0 && formattedLines[formattedLines.length - 1] !== '') {
+        formattedLines.push('');
+      }
+    }
+
+    formattedLines.push(line);
+  }
+
+  return formattedLines.join('\n') || '暂无描述';
+}
+
 /** Boss直聘适配器 */
 function normalizeBossJob(job: any, raw: any, raw2: any, companyInfo?: any, jobDetail?: any): NormalizedJobData {
   const boss_single = jobDetail || raw?.boss_single_detail || raw || {};
@@ -106,7 +197,7 @@ function normalizeBossJob(job: any, raw: any, raw2: any, companyInfo?: any, jobD
     companyStage: raw?.brandStageName || comp.customerBrandStageName || comp.stageName || '',
     companyScale: raw?.brandScaleName || comp.scaleName || boss_single['公司规模'] || '',
     brandName: raw?.proxyJob === 0 ? (raw?.brandName || comp.brandName || comp.customerBrandName || boss_single['公司名称'] || '') : (boss.brandName || boss_single['HR职位'] || ''),
-    companyFullName: raw?.proxyJob === 0 ? (boss_single['公司全称'] || raw?._fetched_companyFullName || raw?.['公司全称'] || raw?.brandName || comp.customerBrandName || comp.brandName || '') : (boss.brandName || boss_single['HR职位'] || ''),
+    companyFullName: raw?.proxyJob === 0 ? (job?.companyFullName || boss_single['公司全称'] || raw?._fetched_companyFullName || raw?.['公司全称'] || raw?.brandName || comp.customerBrandName || comp.brandName || '') : (job.companyFullName || boss.brandName || boss_single['HR职位'] || ''),
     companyId: raw?.encryptBrandId || comp.encryptBrandId || boss.brandName || '',
     hrName: raw?.bossName || boss.name || boss_single['HR姓名'] || '',
     hrPosition: raw?.bossTitle || boss.title || boss_single['HR职位'] || '',
@@ -116,7 +207,7 @@ function normalizeBossJob(job: any, raw: any, raw2: any, companyInfo?: any, jobD
     jobId: raw?.encryptJobId || info?.encryptId || job.jobId,
     jobName: raw?.jobName || info.jobName || boss_single['职位名称'] || job.jobName || '',
     salaryRange: raw?.salaryDesc || info.salaryDesc || boss_single['薪资待遇'] || '',
-    jobDesc: info.postDescription || boss_single['职位描述'] || '暂无描述',
+    jobDesc: cleanHtmlText(info.postDescription || boss_single['职位描述']),
     experience: raw?.jobExperience || info.experienceName || boss_single['工作经验'] || job.experience || '经验不限',
     degree: raw?.jobDegree || info.degreeName || boss_single['学历要求'] || job.degree || '学历不限',
     positionType: raw?.proxyJob || '',
@@ -161,7 +252,7 @@ function normalize51Job(job: any, raw: any, raw2: any, companyInfo?: any, jobDet
     jobId: fallback.jobId || info.jobId || job.jobId || '',
     jobName: fallback.jobName || info.jobName || job.jobName || '',
     salaryRange: fallback.provideSalaryString || info.provideSalaryString || '',
-    jobDesc: fallback.jobDescribe || info.jobDescribe || '暂无描述',
+    jobDesc: cleanHtmlText(fallback.jobDescribe || info.jobDescribe),
     experience: fallback.workYearString || info.workYearString || job.experience || '经验不限',
     degree: fallback.degreeString || info.degreeString || job.degree || '学历不限',
     positionType: fallback.jobType || info.jobType || '',
@@ -245,7 +336,7 @@ function normalizeZhilianJob(job: any, raw: any, raw2: any, companyInfo?: any, j
     jobId: fallback.number || base.positionNumber || jobDetailData.position?.base?.positionNumber || detailedPosition.number || detailedPosition.positionNumber || '',
     jobName: fallback.name || fallback.list_name || base.positionName || jobDetailData.position?.base?.positionName || detailedPosition.name || detailedPosition.positionName || '',
     salaryRange: fallback.salary60 || base.salary || jobDetailData.position?.base?.salary || detailedPosition.salary || '',
-    jobDesc: jobDetailData.position?.desc?.description || detailedPosition.description || detailedPosition.jobDesc || '暂无描述',
+    jobDesc: cleanHtmlText(jobDetailData.position?.desc?.description || detailedPosition.description || detailedPosition.jobDesc),
     experience: base.positionWorkingExp || fallback.workingExp || jobDetailData.position?.base?.positionWorkingExp || detailedPosition.positionWorkingExp || detailedPosition.workingExp || '经验不限',
     degree: base.education || fallback.education || jobDetailData.position?.base?.education || detailedPosition.education || '学历不限',
     positionType: jobType || '',
@@ -276,6 +367,9 @@ function normalizeLiepinJob(job: any, raw: any, raw2: any, companyInfo?: any, jo
     }
   }
 
+  let compFullName = job.companyFullName || comp.fullCompanyName || hrCoName || comp.compName || ''
+
+
   return {
     jobUrl: jobInfo.link || jdJson.url || '',
     publishDate: jdJson.datePosted || jdJson.supplementalDomData?.cambrianPubDate || '',
@@ -285,7 +379,7 @@ function normalizeLiepinJob(job: any, raw: any, raw2: any, companyInfo?: any, jo
     companyStage: comp.compStage || '',
     companyScale: comp.compScale || '',
     brandName: comp.fullCompanyName || hrCoName || comp.compName || '',
-    companyFullName: comp.fullCompanyName || hrCoName || comp.compName || '',
+    companyFullName: compFullName,
     companyId: comp.link?.match(/\/company\/(\d+)/)?.[1] || jdJson.hiringOrganization?.sameAs?.match(/\/company\/(\d+)/)?.[1] || '',
     hrName: fallback.recruiter?.recruiterName || '',
     hrPosition: fallback.recruiter?.recruiterTitle || '',
@@ -295,7 +389,7 @@ function normalizeLiepinJob(job: any, raw: any, raw2: any, companyInfo?: any, jo
     jobId: jobInfo.jobId || jdJson.identifier?.value || fallback['职位ID'] || '',
     jobName: jobInfo.title || jdJson.title || '',
     salaryRange: jobInfo.salary || jdJson.salary || '',
-    jobDesc: jdJson.description || jdJson.supplementalDomData?.jobDescribe || '暂无描述',
+    jobDesc: cleanHtmlText(jdJson.description || jdJson.supplementalDomData?.jobDescribe),
     experience: jobInfo.requireWorkYears || jdJson.experienceRequirements || '经验不限',
     degree: jobInfo.requireEduLevel || jdJson.educationRequirements || '学历不限',
     positionType: jobInfo.jobKind || '',
@@ -333,7 +427,7 @@ function normalizeFallbackJob(job: any, raw: any, raw2: any, companyInfo?: any, 
     jobId: fallback.positionId || fallback.jobId || job.jobId || '',
     jobName: fallback.name || job.jobName || '',
     salaryRange: fallback.salary || job.salary || '未知',
-    jobDesc: fallback['职位描述'] || fallback.jobDesc || '暂无描述',
+    jobDesc: cleanHtmlText(fallback['职位描述'] || fallback.jobDesc),
     experience: fallback['工作经验'] || fallback.experience || job.experience || '经验不限',
     degree: fallback['学历要求'] || fallback.degree || job.degree || '学历不限',
     positionType: fallback.jobType || job.positionType || '',

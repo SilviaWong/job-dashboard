@@ -35,6 +35,14 @@
               @keyup.enter="handleSearch"
               @clear="handleSearch"
             />
+            <el-button 
+              type="warning" 
+              style="border: none; border-radius: 6px;" 
+              :loading="batchGenerating"
+              @click="batchAiAnswer"
+            >
+              🤖 一键补充 AI 解答
+            </el-button>
             <el-button type="primary" style="border: none; border-radius: 6px;" @click="openDialog()">
               ➕ 新增题目
             </el-button>
@@ -42,7 +50,8 @@
         </div>
       </template>
 
-      <el-table :data="questions" v-loading="loading" style="width: 100%" row-key="id">
+      <el-table :data="questions" v-loading="loading" style="width: 100%" row-key="id" @selection-change="handleSelectionChange">
+        <el-table-column type="selection" width="55" />
         <!-- 展开行，显示变体真题和标准答案 -->
         <el-table-column type="expand">
           <template #default="{ row }">
@@ -192,7 +201,7 @@
           <template #label>
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
               <span>🤖 AI 个性化解答 (结合简历)</span>
-              <el-button size="small" color="#f5a623" style="color: white; border: none;" @click="aiAnswer">
+              <el-button size="small" color="#f5a623" style="color: white; border: none;" @click.prevent="aiAnswer" native-type="button">
                 生成解答
               </el-button>
             </div>
@@ -228,10 +237,38 @@ const total = ref(0)
 const searchQuery = ref('')
 const searchDomain = ref('')
 
+const selectedQuestions = ref([])
+const batchGenerating = ref(false)
+
 const dialogVisible = ref(false)
 const saving = ref(false)
 const isEdit = ref(false)
 const formRef = ref(null)
+
+const handleSelectionChange = (val) => {
+  selectedQuestions.value = val
+}
+
+const batchAiAnswer = async () => {
+  batchGenerating.value = true
+  
+  try {
+    const res = await $fetch('/api/questions/batch-ai-answer', {
+      method: 'POST'
+    })
+    
+    if (res && res.success) {
+      ElMessage.success(`成功补充了 ${res.count} 个题目的解答`)
+      fetchQuestions()
+    } else {
+      ElMessage.error(res?.error || '批量生成失败')
+    }
+  } catch (error) {
+    ElMessage.error('服务请求异常')
+  } finally {
+    batchGenerating.value = false
+  }
+}
 
 const formData = ref({
   id: '',
@@ -239,7 +276,8 @@ const formData = ref({
   domain: '',
   categoryTags: '',
   corePoints: '',
-  answerKey: ''
+  answerKey: '',
+  aiAnswer: ''
 })
 
 const rules = {

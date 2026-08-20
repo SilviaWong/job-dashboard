@@ -73,7 +73,7 @@ export default defineEventHandler(async (event) => {
     
     // Missing Boss Detail Filter
     if (filterMissingBossDetail) {
-      const bossDetails = await prisma.bossSingleDetail.findMany({ select: { jobId: true } })
+      const bossDetails = await prisma.jobDetail.findMany({ select: { jobId: true }, where: { platform: 'Boss直聘' } })
       const bossDetailJobIds = bossDetails.map(d => d.jobId)
       if (bossDetailJobIds.length > 0) {
         andConditions.push({
@@ -214,9 +214,9 @@ export default defineEventHandler(async (event) => {
     // Batch query BossSingleDetails for Boss jobs
     const bossJobIds = jobs.filter(j => j.platform === 'Boss直聘').map(j => j.jobId);
     let bossSingleDetailsMap: Record<string, any> = {};
-    if (bossJobIds.length > 0) {
-      const bossDetails = await prisma.bossSingleDetail.findMany({
-        where: { jobId: { in: bossJobIds } }
+    if (jobIds.length > 0) {
+      const bossDetails = await prisma.jobDetail.findMany({
+        where: { jobId: { in: jobIds }, platform: 'Boss直聘' }
       });
       bossSingleDetailsMap = Object.fromEntries(bossDetails.map(d => [d.jobId, d]));
     }

@@ -23,6 +23,7 @@ export default defineEventHandler(async (event) => {
     const jobs = await prisma.job.findMany({
       where: jobWhere,
       select: {
+        id: true,
         jobId: true,
         title: true,
         companyName: true,
@@ -52,11 +53,11 @@ export default defineEventHandler(async (event) => {
     const blacklistedSet = new Set(blacklisted.map(b => b.companyName))
 
     const bossJobIds = jobs.filter(j => j.platform === 'Boss直聘').map(j => j.jobId)
-    // 1.3 查询 boss_single_detail 数据表，获取boss直聘详情数据
+    // 1.3 批量查询关联职位在 job_details 里的数据
     let bossSingleDetailsMap: Record<string, any> = {}
     if (bossJobIds.length > 0) {
-      const bossDetails = await prisma.bossSingleDetail.findMany({
-        where: { jobId: { in: bossJobIds } }
+      const bossDetails = await prisma.jobDetail.findMany({
+        where: { jobId: { in: bossJobIds }, platform: 'Boss直聘' }
       })
       bossSingleDetailsMap = Object.fromEntries(bossDetails.map(d => [d.jobId, d]))
     }
@@ -110,11 +111,15 @@ export default defineEventHandler(async (event) => {
           companyName: canonicalName,
           sourcePlatform: c.sourcePlatform,
           companyId: c.companyId,
+          isAgency: c.isAgency,
           rawData: c.rawData ? JSON.parse(c.rawData) : null,
           rawData2: c.rawData2 ? JSON.parse(c.rawData2) : null,
         })
       } else {
         const existing = companyMap.get(canonicalName);
+        if (c.isAgency) {
+          existing.isAgency = true;
+        }
         if (!existing.rawData && c.rawData) {
           existing.rawData = JSON.parse(c.rawData);
           existing.sourcePlatform = c.sourcePlatform;
@@ -138,7 +143,7 @@ export default defineEventHandler(async (event) => {
 
       if (!resultNodes.has(nodeKey)) {
         // 如果在 Company 表里有该公司记录，就拿过来用；如果没有，就建一个只有名称的壳
-        const baseCompany = companyMap.get(nodeKey) || { companyName: nodeKey, sourcePlatform: platform, rawData: null }
+        const baseCompany = companyMap.get(nodeKey) || { companyName: nodeKey, sourcePlatform: platform, isAgency: false, rawData: null }
 
         resultNodes.set(nodeKey, {
           ...baseCompany,
@@ -208,11 +213,23 @@ export default defineEventHandler(async (event) => {
     // Sort by jobs count descending
     finalArray.sort((a, b) => b.jobs.length - a.jobs.length)
 
-    // Handle Search Query
+    // Handle Search Query & Filters
     const queryParams = getQuery(event)
     const page = parseInt(queryParams.page as string) || 1
     const pageSize = parseInt(queryParams.pageSize as string) || 20
     const searchStr = (queryParams.query as string || '').toLowerCase()
+    const agencyFilter = (queryParams.agencyFilter as string) || 'direct' // 'direct', 'agency', 'all'
+    const platformFilter = (queryParams.platformFilter as string) || 'all'
+
+    if (agencyFilter === 'direct') {
+      finalArray = finalArray.filter(c => !c.isAgency)
+    } else if (agencyFilter === 'agency') {
+      finalArray = finalArray.filter(c => c.isAgency)
+    }
+
+    if (platformFilter !== 'all') {
+      finalArray = finalArray.filter(c => c.platformSources.some((p: string) => p.includes(platformFilter)))
+    }
 
     if (searchStr) {
       finalArray = finalArray.filter(c =>
