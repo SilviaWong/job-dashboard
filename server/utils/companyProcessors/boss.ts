@@ -32,7 +32,7 @@ export const processBossCompany: CompanyProcessor = async (company, platform, pr
   // 统一清洗：解码 Unicode、替换中文括号为英文括号、去除所有空格
   cName = cleanCompanyName(cName)
   cFullName = cleanCompanyName(cFullName)
-  
+
   // 统一平台标识为中文“Boss直聘”
   const standardizedPlatform = platform === 'boss' ? 'Boss直聘' : platform
   const finalCompanyName = cFullName || cName
@@ -133,18 +133,19 @@ export const processBossCompany: CompanyProcessor = async (company, platform, pr
       orConditions.push({ companyName: finalCompanyName })
     }
 
-    if (orConditions.length > 0) {
-      await prisma.job.updateMany({
-        where: {
-          platform: standardizedPlatform,
-          OR: orConditions
-        },
-        data: {
-          companyFullName: validFullName,
-          updatedAt: updatedAt
-        }
-      })
-    }
+    // 暂时不更新到job表里的公司名称了，直接在职位详情页动态获取了，这里是针对boss直聘平台
+    // if (orConditions.length > 0) {
+    //   await prisma.job.updateMany({
+    //     where: {
+    //       platform: standardizedPlatform,
+    //       OR: orConditions
+    //     },
+    //     data: {
+    //       companyFullName: validFullName,
+    //       updatedAt: updatedAt
+    //     }
+    //   })
+    // }
   }
 }
 

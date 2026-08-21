@@ -131,18 +131,19 @@ export const process51JobCompany: CompanyProcessor = async (company, platform, p
       orConditions.push({ companyName: cName })
     }
 
-    if (orConditions.length > 0) {
-      await prisma.job.updateMany({
-        where: {
-          platform: standardizedPlatform,
-          OR: orConditions
-        },
-        data: {
-          companyFullName: cFullName,
-          updatedAt: updatedAt
-        }
-      })
-    }
+    // 暂时不更新到job表里的公司名称了，直接在职位详情页动态获取了，这里是针对51job平台
+    // if (orConditions.length > 0) {
+    //   await prisma.job.updateMany({
+    //     where: {
+    //       platform: standardizedPlatform,
+    //       OR: orConditions
+    //     },
+    //     data: {
+    //       companyFullName: cFullName,
+    //       updatedAt: updatedAt
+    //     }
+    //   })
+    // }
   }
 }
 
