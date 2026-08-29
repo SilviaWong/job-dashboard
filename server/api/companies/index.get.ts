@@ -38,6 +38,10 @@ export default defineEventHandler(async (event) => {
         firstSeen: true,
         lastSeen: true,
         descHash: true,
+        hrActiveStatus: true,
+        hrActiveLevel: true,
+        rawData: true,
+        rawData2: true,
         status: true
       }
     })
@@ -174,6 +178,28 @@ export default defineEventHandler(async (event) => {
         parsedTags = []
       }
 
+      // 解析 rawData 与 rawData2
+      let parsedRawData = null
+      if (job.rawData) {
+        try {
+          parsedRawData = JSON.parse(job.rawData)
+        } catch (e) { }
+      }
+      let parsedRawData2 = null
+      if (job.rawData2) {
+        try {
+          parsedRawData2 = JSON.parse(job.rawData2)
+        } catch (e) { }
+      }
+
+      // Fallback tags from rawData if custom tags is empty
+      if (parsedTags.length === 0 && parsedRawData) {
+        let rawTagsStr = parsedRawData['技能标签'] || (parsedRawData.jobInfo && parsedRawData.jobInfo.showSkills) || ''
+        if (typeof rawTagsStr === 'string' && rawTagsStr) {
+          parsedTags = rawTagsStr.split(',').map((t: string) => t.trim()).filter(Boolean)
+        }
+      }
+
       // 提取 Boss 职位补充详情
       let parsedBossSingleDetail = null;
       if (job.platform === 'Boss直聘' && bossSingleDetailsMap[job.jobId]) {
@@ -181,9 +207,9 @@ export default defineEventHandler(async (event) => {
           parsedBossSingleDetail = JSON.parse(bossSingleDetailsMap[job.jobId].rawData)
         } catch (e) { }
       }
-      const normalizedData = normalizeJobData(job, null, null, node.rawData, parsedBossSingleDetail)
+      const normalizedData = normalizeJobData(job, parsedRawData, parsedRawData2, node.rawData, parsedBossSingleDetail)
 
-      const { tags, ...jobWithoutRawData } = job as any;
+      const { rawData, rawData2, tags, ...jobWithoutRawData } = job as any;
       let companyWithoutRawData = null;
       if (node) {
         const { rawData: companyRaw, rawData2: companyRaw2, jobs: _jobs, platformSources: _platformSources, ...restCompany } = node as any;

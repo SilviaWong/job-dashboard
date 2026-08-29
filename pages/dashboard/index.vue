@@ -76,6 +76,24 @@
         </div>
       </div>
 
+      <div class="charts-row">
+        <!-- HR Active Status Chart -->
+        <div class="chart-card">
+          <h3 class="chart-title">👔 HR 活跃度与僵尸岗位分布</h3>
+          <ClientOnly>
+            <v-chart class="chart" :option="hrActiveChartOption" autoresize />
+          </ClientOnly>
+        </div>
+
+        <!-- Platform Distribution Chart -->
+        <div class="chart-card">
+          <h3 class="chart-title">🌐 招聘平台岗位来源</h3>
+          <ClientOnly>
+            <v-chart class="chart" :option="platformChartOption" autoresize />
+          </ClientOnly>
+        </div>
+      </div>
+
       <div class="charts-row full-width">
         <!-- Skills WordCloud -->
         <div class="chart-card">
@@ -255,6 +273,66 @@ const expChartOption = computed(() => {
       }
     ],
     color: ['#e74c3c', '#f1c40f', '#2ecc71', '#9b59b6', '#95a5a6']
+  }
+})
+
+// HR Active Status Chart Options
+const hrActiveChartOption = computed(() => {
+  if (!statsData.value?.hrActive) return {}
+  const d = statsData.value.hrActive
+  const pieData = [
+    { name: '🟢 高频活跃 (7天内)', value: d.active, itemStyle: { color: '#10b981' } },
+    { name: '🟡 一般活跃 (月内)', value: d.moderate, itemStyle: { color: '#f59e0b' } },
+    { name: '💤 僵尸岗位 (>30天/年)', value: d.zombie, itemStyle: { color: '#ef4444' } },
+    { name: '⚪ 未知/未提供', value: d.unknown, itemStyle: { color: '#94a3b8' } }
+  ].filter(item => item.value > 0)
+
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}个 ({d}%)' },
+    legend: { top: '5%', left: 'center' },
+    series: [
+      {
+        name: 'HR活跃度',
+        type: 'pie',
+        radius: ['40%', '70%'],
+        avoidLabelOverlap: true,
+        itemStyle: {
+          borderRadius: 8,
+          borderColor: '#fff',
+          borderWidth: 2
+        },
+        data: pieData
+      }
+    ]
+  }
+})
+
+// Platform Chart Options
+const platformChartOption = computed(() => {
+  if (!statsData.value?.platform) return {}
+  const data = statsData.value.platform
+  const pieData = Object.keys(data).map(key => ({
+    name: key,
+    value: data[key]
+  }))
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}个 ({d}%)' },
+    legend: { top: '5%', left: 'center' },
+    series: [
+      {
+        name: '平台分布',
+        type: 'pie',
+        radius: ['40%', '70%'],
+        avoidLabelOverlap: false,
+        itemStyle: {
+          borderRadius: 8,
+          borderColor: '#fff',
+          borderWidth: 2
+        },
+        data: pieData
+      }
+    ],
+    color: ['#00bebd', '#ff6000', '#2563eb', '#3b82f6', '#8b5cf6']
   }
 })
 

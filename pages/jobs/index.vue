@@ -51,6 +51,12 @@
                 <el-option label="🔥 活跃 (30天内)" value="new_30d"></el-option>
                 <el-option label="⚠️ 常驻 (>60天)" value="stale_60d"></el-option>
               </el-select>
+              <el-select v-model="hrActiveFilter" placeholder="HR活跃度" style="width: 155px" @change="() => fetchJobs(false)">
+                <el-option label="全部HR状态" value="all"></el-option>
+                <el-option label="🟢 活跃HR (7天内)" value="active"></el-option>
+                <el-option label="🟡 一般活跃 (月内)" value="moderate"></el-option>
+                <el-option label="💤 僵尸岗位 (>30天/年)" value="zombie"></el-option>
+              </el-select>
               <el-radio-group v-model="statusFilter" size="small" @change="() => fetchJobs(false)">
                 <el-radio-button value="all">全部</el-radio-button>
                 <el-radio-button :value="JobStatus.NORMAL">常规</el-radio-button>
@@ -78,6 +84,9 @@
               </el-checkbox>
               <el-checkbox v-if="platformFilter === 'Boss直聘'" v-model="filterMissingBossDetail" @change="() => fetchJobs(false)">
                 未抓取详情
+              </el-checkbox>
+              <el-checkbox v-model="filterExcludeHeadhunter" @change="() => fetchJobs(false)">
+                <el-icon><UserCheck /></el-icon> 过滤猎头/代招
               </el-checkbox>
             </div>
             
@@ -166,6 +175,35 @@
                 ⚠️ 常驻职位 (&gt;60天)
               </el-tag>
 
+              <!-- HR 活跃度标记 (活跃 / 适中 / 僵尸岗) -->
+              <el-tag 
+                v-if="job.hrActiveLevel === 'zombie'" 
+                size="small" 
+                effect="dark" 
+                style="border-radius: 4px; font-weight: 600; background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;"
+                :title="'该岗位HR长期未活跃: ' + (job.hrActiveStatus || '数月/年前活跃')"
+              >
+                💤 僵尸岗位 ({{ job.hrActiveStatus || '长期未活跃' }})
+              </el-tag>
+              <el-tag 
+                v-else-if="job.hrActiveLevel === 'active' && job.hrActiveStatus" 
+                type="success" 
+                size="small" 
+                effect="plain" 
+                style="border-radius: 4px; font-weight: 500;"
+              >
+                ⚡ HR: {{ job.hrActiveStatus }}
+              </el-tag>
+              <el-tag 
+                v-else-if="job.hrActiveLevel === 'moderate' && job.hrActiveStatus" 
+                type="info" 
+                size="small" 
+                effect="plain" 
+                style="border-radius: 4px;"
+              >
+                HR: {{ job.hrActiveStatus }}
+              </el-tag>
+
               <template v-if="job.isHidden && job.tags && Array.isArray(job.tags) && job.tags.length > 0">
                 <el-tag v-for="(t, idx) in job.tags" :key="'reason-'+idx" type="info" size="small" effect="dark" style="border: none;">
                   🚫 {{ t }}
@@ -194,6 +232,7 @@
             <div class="job-meta">
               <span v-if="job.firstSeen" class="meta-item" :title="'首次收录: ' + job.firstSeen">发现: {{ formatTimeAgo(job.firstSeen) }}</span>
               <span v-if="job.lastSeen && job.lastSeen !== job.firstSeen" class="meta-item" :title="'最近活跃: ' + job.lastSeen">活跃: {{ formatTimeAgo(job.lastSeen) }}</span>
+              <span v-if="job.hrActiveStatus" class="meta-item" :style="{ color: job.hrActiveLevel === 'zombie' ? '#ef4444' : (job.hrActiveLevel === 'active' ? '#10b981' : '#64748b'), fontWeight: job.hrActiveLevel === 'zombie' ? '600' : 'normal' }">HR: {{ job.hrActiveStatus }}</span>
               <span v-if="job.normalizedData?.publishDate" class="meta-item">首发: {{ job.normalizedData.publishDate }}</span>
               <span v-if="job.normalizedData?.updateDate" class="meta-item">修改: {{ job.normalizedData.updateDate }}</span>
               <span class="meta-item">状态: {{ job.normalizedData?.jobStatus || job.status || '-' }}</span>
@@ -206,7 +245,7 @@
               <div class="footer-left">
                 <el-button round size="small" :color="job.isFavorited ? '#ea580c' : '#f1f5f9'" :style="{ color: job.isFavorited ? '#fff' : '#64748b', border: job.isFavorited ? 'none' : '1px solid #cbd5e1' }" @click.stop="toggleFavorite(job)">{{ job.isFavorited ? '⭐ 已收藏' : '☆ 收藏' }}</el-button>
                 <el-button round size="small" color="#e74c3c" style="color: #fff;" @click.stop="openUnsuitableModal(job)">👎 不合适</el-button>
-                <el-button round size="small" color="#95a5a6" style="color: #fff;" @click.stop>{{ job.isBlacklisted ? '⛔ 已拉黑' : '⛔ 拉黑' }}</el-button>
+                <el-button round size="small" :color="job.isBlacklisted ? '#e11d48' : '#95a5a6'" style="color: #fff;" @click.stop="toggleBlacklist(job)">{{ job.isBlacklisted ? '⛔ 已拉黑' : '⛔ 拉黑' }}</el-button>
                 <el-button round size="small" color="#e74c3c" style="color: #fff;" @click.stop="handleDeleteJob(job)">删除</el-button>
               </div>
               <div class="footer-right">
@@ -305,7 +344,7 @@
 import { shallowRef, ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { JobStatus } from '~/utils/enums'
-import { Star, Eye, Ban, ThumbsDown, Trash2, Calendar, Bot, ExternalLink, Loader2, Copy } from 'lucide-vue-next'
+import { Star, Eye, Ban, ThumbsDown, Trash2, Calendar, Bot, ExternalLink, Loader2, Copy, UserCheck } from 'lucide-vue-next'
 
 const jobList = shallowRef([])
 const loading = ref(false)
@@ -361,6 +400,7 @@ const filterFavoritesOnly = ref(false)
 const filterShowHidden = ref(false)
 const filterShowBlacklisted = ref(false)
 const filterMissingBossDetail = ref(false)
+const filterExcludeHeadhunter = ref(false)
 
 const platformFilter = ref('all')
 const educationFilter = ref('all')
@@ -368,6 +408,7 @@ const keywordFilter = ref('')
 const aiDiagnosisFilter = ref('all')
 const salaryFilter = ref('all')
 const lifecycleFilter = ref('all')
+const hrActiveFilter = ref('all')
 
 const jobDetailDrawerRef = ref(null)
 
@@ -424,12 +465,14 @@ const fetchJobs = async (isLoadMore = false) => {
       filterShowHidden: filterShowHidden.value,
       filterShowBlacklisted: filterShowBlacklisted.value,
       filterMissingBossDetail: filterMissingBossDetail.value,
+      filterExcludeHeadhunter: filterExcludeHeadhunter.value,
       platform: platformFilter.value,
       education: educationFilter.value,
       keyword: keywordFilter.value,
       aiDiagnosisFilter: aiDiagnosisFilter.value,
       salaryFilter: salaryFilter.value,
       lifecycleFilter: lifecycleFilter.value,
+      hrActiveFilter: hrActiveFilter.value,
     })
     const res = await $fetch(`/api/jobs?${params.toString()}`)
     if (res && res.success && Array.isArray(res.data)) {
@@ -756,6 +799,57 @@ const toggleFavorite = async (job) => {
   } catch (error) {
     console.error('Toggle favorite error:', error)
     ElMessage.error('收藏操作出现异常')
+  }
+}
+
+const toggleBlacklist = async (job) => {
+  const comp = job.normalizedData?.companyFullName || job.normalizedData?.brandName || job.companyName
+  if (!comp) {
+    ElMessage.warning('未获取到该职位的公司名称')
+    return
+  }
+
+  const isCurrentlyBlacklisted = job.isBlacklisted
+  try {
+    if (isCurrentlyBlacklisted) {
+      const res = await $fetch(`/api/blacklist?companyName=${encodeURIComponent(comp)}`, {
+        method: 'DELETE'
+      })
+      if (res && res.success) {
+        ElMessage.success(`已将【${comp}】移出黑名单`)
+        jobList.value.forEach(j => {
+          if (j.companyName === comp || j.normalizedData?.companyFullName === comp) {
+            j.isBlacklisted = false
+          }
+        })
+        jobList.value = [...jobList.value]
+      } else {
+        ElMessage.error(res?.error || '操作失败')
+      }
+    } else {
+      const res = await $fetch('/api/blacklist', {
+        method: 'POST',
+        body: {
+          companyName: comp,
+          reason: '用户手动拉黑',
+          source: 'manual'
+        }
+      })
+      if (res && res.success) {
+        ElMessage.success(`已将【${comp}】加入企业黑名单`)
+        jobList.value.forEach(j => {
+          if (j.companyName === comp || j.normalizedData?.companyFullName === comp) {
+            j.isBlacklisted = true
+          }
+        })
+        jobList.value = [...jobList.value]
+      } else {
+        ElMessage.error(res?.error || '拉黑失败')
+      }
+    }
+  } catch (error) {
+    console.error('Toggle blacklist error:', error)
+    ElMessage.error('拉黑操作出现异常: ' + error.message)
   }
 }
 

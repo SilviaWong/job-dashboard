@@ -1,5 +1,6 @@
 import { getPrisma } from '#prisma'
 import { computeDescHash } from '../utils/descHash'
+import { resolveJobHrActive } from '../utils/hrAnalytics'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -343,6 +344,19 @@ export default defineEventHandler(async (event) => {
         job.firstSeen = job.createdAt
         job.lastSeen = job.updatedAt
 
+        let parsedRaw = null
+        try { parsedRaw = JSON.parse(job.rawData) } catch(e) {}
+        const hr = resolveJobHrActive(parsedRaw, null, job.platform)
+        job.hrActiveStatus = hr.hrActiveStatus || null
+        job.hrActiveLevel = hr.hrActiveLevel
+
+        let isHeadhunter = false
+        if (job.platform === 'Boss直聘') isHeadhunter = parsedRaw?.proxyJob === 1 || parsedRaw?.zpData?.jobInfo?.proxyJob === 1 || false
+        else if (job.platform === '51job') isHeadhunter = parsedRaw?.jobType === '1' || parsedRaw?.jobType === '2' || parsedRaw?.companyTypeString === '中介' || false
+        else if (job.platform === '猎聘') isHeadhunter = String(parsedRaw?.job?.jobKind) === '1' || false
+        else if (job.platform === '智联') isHeadhunter = (parsedRaw?.proxyModel?.recruitPosition > 0) || false
+        job.isHeadhunter = isHeadhunter
+
         const key = `${job.jobId}_${job.platform}`
         const existing = existingJobMap.get(key)
         if (existing) {
@@ -377,7 +391,10 @@ export default defineEventHandler(async (event) => {
             rawData: job.rawData,
             updatedAt: job.updatedAt,
             lastSeen: job.updatedAt,
-            descHash: descHash
+            descHash: descHash,
+            hrActiveStatus: job.hrActiveStatus,
+            hrActiveLevel: job.hrActiveLevel,
+            isHeadhunter: isHeadhunter
           },
           create: job
         })

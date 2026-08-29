@@ -10,11 +10,13 @@ export default defineEventHandler(async (event) => {
   const filterShowBlacklisted = query.filterShowBlacklisted === 'true'
   const filterShowHidden = query.filterShowHidden === 'true'
   const filterMissingBossDetail = query.filterMissingBossDetail === 'true'
+  const filterExcludeHeadhunter = query.filterExcludeHeadhunter === 'true'
   const platform = query.platform as string || 'all'
   const education = query.education as string || 'all'
   const keyword = query.keyword as string || ''
   const salaryFilter = query.salaryFilter as string || 'all'
   const lifecycleFilter = query.lifecycleFilter as string || 'all'
+  const hrActiveFilter = query.hrActiveFilter as string || 'all'
 
   const page = parseInt(query.page as string) || 1
   const pageSize = parseInt(query.pageSize as string) || 20
@@ -43,6 +45,11 @@ export default defineEventHandler(async (event) => {
     // Favorites filter
     if (filterFavoritesOnly) {
       whereClause.isFavorited = true
+    }
+
+    // Headhunter filter (排除猎头/代招，仅看直招)
+    if (filterExcludeHeadhunter) {
+      whereClause.isHeadhunter = false
     }
 
     // Platform filter
@@ -77,6 +84,11 @@ export default defineEventHandler(async (event) => {
         const date60dAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
         andConditions.push({ firstSeen: { lte: date60dAgo } })
       }
+    }
+
+    // HR 活跃度过滤 (活跃 active / 适中 moderate / 僵尸岗 zombie)
+    if (hrActiveFilter !== 'all') {
+      whereClause.hrActiveLevel = hrActiveFilter
     }
     
     // AI Diagnosis filter

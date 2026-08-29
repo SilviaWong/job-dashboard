@@ -14,7 +14,8 @@ export default defineEventHandler(async (event) => {
         platform: true,
         firstSeen: true,
         lastSeen: true,
-        createdAt: true
+        createdAt: true,
+        hrActiveLevel: true
       }
     })
 
@@ -22,6 +23,7 @@ export default defineEventHandler(async (event) => {
     const expDist: Record<string, number> = {}
     const skillsDist: Record<string, number> = {}
     const platformDist: Record<string, number> = {}
+    const hrActiveDist = { active: 0, moderate: 0, zombie: 0, unknown: 0 }
 
     const now = Date.now()
     const ms7d = 7 * 24 * 60 * 60 * 1000
@@ -47,6 +49,14 @@ export default defineEventHandler(async (event) => {
       // 平台分布
       const plat = job.platform || '未知'
       platformDist[plat] = (platformDist[plat] || 0) + 1
+
+      // HR活跃度统计
+      const hrLevel = (job.hrActiveLevel as 'active' | 'moderate' | 'zombie' | 'unknown') || 'unknown'
+      if (hrActiveDist[hrLevel] !== undefined) {
+        hrActiveDist[hrLevel]++
+      } else {
+        hrActiveDist.unknown++
+      }
 
       // 时间计算（优先 firstSeen，降级 createdAt）
       const seenTime = job.firstSeen ? new Date(job.firstSeen).getTime() : (job.createdAt ? new Date(job.createdAt).getTime() : now)
@@ -189,12 +199,14 @@ export default defineEventHandler(async (event) => {
         skills: skillsDist,
         platform: platformDist,
         totalJobs: jobs.length,
+        hrActive: hrActiveDist,
         kpi: {
           totalJobs: jobs.length,
           recent7d,
           recent30d,
           stale60d,
-          newJobRatio: jobs.length > 0 ? ((recent7d / jobs.length) * 100).toFixed(1) : '0'
+          newJobRatio: jobs.length > 0 ? ((recent7d / jobs.length) * 100).toFixed(1) : '0',
+          zombieRatio: jobs.length > 0 ? ((hrActiveDist.zombie / jobs.length) * 100).toFixed(1) : '0'
         },
         trends: {
           monthly: monthlyTrend,

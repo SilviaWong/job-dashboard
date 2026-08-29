@@ -1,6 +1,7 @@
 import type { JobProcessor } from './types'
 import { cleanCompanyName } from '../companyProcessors/types'
 import { computeDescHash } from '../descHash'
+import { resolveJobHrActive } from '../hrAnalytics'
 
 export const processZhilianJob: JobProcessor = async (job, platform, prisma) => {
   // 智联招聘的数据抓取有两种方式，获取到的职位json格式不一样，需要分别处理
@@ -200,6 +201,7 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
   const createdAt = new Date()
   const updatedAt = new Date()
   const descHash = computeDescHash(job)
+  const hr = resolveJobHrActive(job, null, platform)
 
   // 组装更新职位数据
   const updateData: any = {
@@ -213,7 +215,9 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
     dataSource: job.dataSource || '智联',
     updatedAt: updatedAt,
     lastSeen: updatedAt,
-    descHash: descHash
+    descHash: descHash,
+    hrActiveStatus: hr.hrActiveStatus || null,
+    hrActiveLevel: hr.hrActiveLevel
   }
 
   // 组装创建职位数据
@@ -232,7 +236,9 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
     updatedAt: updatedAt,
     firstSeen: createdAt,
     lastSeen: updatedAt,
-    descHash: descHash
+    descHash: descHash,
+    hrActiveStatus: hr.hrActiveStatus || null,
+    hrActiveLevel: hr.hrActiveLevel
   }
 
   // zhilian_scraped_data_v1 的数据使用rawData2字段

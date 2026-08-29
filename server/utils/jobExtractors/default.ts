@@ -1,5 +1,6 @@
 import type { JobProcessor } from './types'
 import { computeDescHash } from '../descHash'
+import { resolveJobHrActive } from '../hrAnalytics'
 
 export const processDefaultJob: JobProcessor = async (job, platform, prisma) => {
   const jobId = job.jobId || job['职位ID'] || ''
@@ -12,6 +13,7 @@ export const processDefaultJob: JobProcessor = async (job, platform, prisma) => 
   const createdAt = new Date()
   const updatedAt = new Date()
   const descHash = computeDescHash(job)
+  const hr = resolveJobHrActive(job, null, platform)
 
   const updateData: any = {
     title: String(jobTitle),
@@ -21,6 +23,8 @@ export const processDefaultJob: JobProcessor = async (job, platform, prisma) => 
     updatedAt: updatedAt,
     lastSeen: updatedAt,
     descHash: descHash,
+    hrActiveStatus: hr.hrActiveStatus || null,
+    hrActiveLevel: hr.hrActiveLevel,
     rawData: stringifiedData
   }
 
@@ -37,6 +41,8 @@ export const processDefaultJob: JobProcessor = async (job, platform, prisma) => 
     firstSeen: createdAt,
     lastSeen: updatedAt,
     descHash: descHash,
+    hrActiveStatus: hr.hrActiveStatus || null,
+    hrActiveLevel: hr.hrActiveLevel,
     rawData: stringifiedData
   }
 

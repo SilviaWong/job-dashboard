@@ -40,12 +40,21 @@ model Job {
   lastSeen     DateTime @default(now())
   descHash     String?
   
+  // HR 活跃度分析与僵尸岗识别
+  hrActiveStatus String?  // 原始活跃描述，如：3分钟前在线、3日内活跃
+  hrActiveLevel  String?  // active (活跃), moderate (适中), zombie (僵尸岗), unknown (未知)
+  
+  // 猎头/代招标记
+  isHeadhunter   Boolean? @default(false)
+  
   // 关联的面试记录 (强绑定，随职位删除而删除)
   interviews   Interview[]
 
   @@unique([jobId, platform])
   @@index([firstSeen])
   @@index([lastSeen])
+  @@index([hrActiveLevel])
+  @@index([isHeadhunter])
 }
 
 // 独立的 AI 结果表（脱离职位独立存在，不设强外键）
@@ -91,7 +100,10 @@ model Interview {
 
 model BlacklistedCompany {
   companyName String   @id
+  reason      String?
+  source      String?  @default("manual") // "chat_rejection", "manual"
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model StandardQuestion {

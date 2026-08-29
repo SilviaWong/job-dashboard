@@ -1,3 +1,5 @@
+import { resolveJobHrActive } from './hrAnalytics'
+
 export interface NormalizedJobData {
   /** 职位链接 (Job URL) */
   jobUrl: string;
@@ -61,6 +63,10 @@ export interface NormalizedJobData {
   dataSource: string;
   /** 职位状态 (Job Status) */
   jobStatus: string;
+  /** HR活跃状态 (HR Active Status) */
+  hrActiveStatus?: string;
+  /** HR活跃评级 (HR Active Level) */
+  hrActiveLevel?: string;
 }
 
 /** 提取标签的通用工厂函数，根据传入的可能属性名来提取 */
@@ -450,19 +456,33 @@ function normalizeFallbackJob(job: any, raw: any, raw2: any, companyInfo?: any, 
  * @returns NormalizedJobData 清洗后的标准数据
  */
 export function normalizeJobData(job: any, raw: any, raw2: any, companyInfo?: any, jobDetail?: any): NormalizedJobData {
-  if (!raw) return normalizeFallbackJob(job, raw, companyInfo);
-
-  // 策略分发：根据平台调用专属适配器
-  switch (job.platform) {
-    case 'Boss直聘':
-      return normalizeBossJob(job, raw, raw2, companyInfo, jobDetail);
-    case '51job':
-      return normalize51Job(job, raw, raw2, companyInfo, jobDetail);
-    case '智联':
-      return normalizeZhilianJob(job, raw, raw2, companyInfo, jobDetail);
-    case '猎聘':
-      return normalizeLiepinJob(job, raw, raw2, companyInfo, jobDetail);
-    default:
-      return normalizeFallbackJob(job, raw, raw2, companyInfo, jobDetail);
+  let result: NormalizedJobData;
+  if (!raw) {
+    result = normalizeFallbackJob(job, raw, companyInfo);
+  } else {
+    // 策略分发：根据平台调用专属适配器
+    switch (job.platform) {
+      case 'Boss直聘':
+        result = normalizeBossJob(job, raw, raw2, companyInfo, jobDetail);
+        break;
+      case '51job':
+        result = normalize51Job(job, raw, raw2, companyInfo, jobDetail);
+        break;
+      case '智联':
+        result = normalizeZhilianJob(job, raw, raw2, companyInfo, jobDetail);
+        break;
+      case '猎聘':
+        result = normalizeLiepinJob(job, raw, raw2, companyInfo, jobDetail);
+        break;
+      default:
+        result = normalizeFallbackJob(job, raw, raw2, companyInfo, jobDetail);
+        break;
+    }
   }
+
+  const hr = resolveJobHrActive(raw, jobDetail, job.platform);
+  result.hrActiveStatus = job.hrActiveStatus || hr.hrActiveStatus || '';
+  result.hrActiveLevel = job.hrActiveLevel || hr.hrActiveLevel || 'unknown';
+
+  return result;
 }

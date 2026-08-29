@@ -1,6 +1,7 @@
 import type { JobProcessor } from './types'
 import { cleanCompanyName } from '../companyProcessors/types'
 import { computeDescHash } from '../descHash'
+import { resolveJobHrActive } from '../hrAnalytics'
 
 // 解析 猎聘 的职位数据
 export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
@@ -52,6 +53,7 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
   const createdAt = new Date()
   const updatedAt = new Date()
   const descHash = computeDescHash(job)
+  const hr = resolveJobHrActive(job, null, platform)
 
   // 组装职位更新数据
   const updateData: any = {
@@ -65,6 +67,8 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
     updatedAt: updatedAt,
     lastSeen: updatedAt,
     descHash: descHash,
+    hrActiveStatus: hr.hrActiveStatus || null,
+    hrActiveLevel: hr.hrActiveLevel,
     rawData: stringifiedData
   }
 
@@ -85,6 +89,8 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
     firstSeen: createdAt,
     lastSeen: updatedAt,
     descHash: descHash,
+    hrActiveStatus: hr.hrActiveStatus || null,
+    hrActiveLevel: hr.hrActiveLevel,
     rawData: stringifiedData
   }
 

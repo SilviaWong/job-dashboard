@@ -50,6 +50,11 @@
           <el-icon><BookOpen /></el-icon>
           <span>题库管理</span>
         </el-menu-item>
+
+        <el-menu-item index="/blacklist">
+          <el-icon><ShieldBan /></el-icon>
+          <span>企业黑名单</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     
@@ -70,7 +75,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { ClipboardList, Building2, MapPin, Bot, BookOpen, Briefcase, FileText, LayoutDashboard, Wand2 } from 'lucide-vue-next'
+import { ClipboardList, Building2, MapPin, Bot, BookOpen, Briefcase, FileText, LayoutDashboard, Wand2, ShieldBan } from 'lucide-vue-next'
 
 const route = useRoute()
 const activeMenu = computed(() => {
@@ -78,6 +83,7 @@ const activeMenu = computed(() => {
   if (route.path.startsWith('/companies')) return '/companies'
   if (route.path.startsWith('/dashboard')) return '/dashboard'
   if (route.path.startsWith('/kanban')) return '/kanban'
+  if (route.path.startsWith('/blacklist')) return '/blacklist'
   if (route.path.startsWith('/ai')) return '/ai'
   if (route.path.startsWith('/questions')) return '/questions'
   return '/jobs'

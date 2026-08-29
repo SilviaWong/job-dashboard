@@ -30,7 +30,29 @@
               <el-tag effect="light" type="info" size="large" class="badge-tag"><el-icon><Globe /></el-icon> {{ job.platform }}</el-tag>
               <el-tag effect="light" type="info" size="large" class="badge-tag"><el-icon><Briefcase /></el-icon> {{ job.normalizedData?.experience || '经验不限' }}</el-tag>
               <el-tag effect="light" type="info" size="large" class="badge-tag"><el-icon><GraduationCap /></el-icon> {{ job.normalizedData?.degree || '学历不限' }}</el-tag>
+              <el-tag v-if="job.normalizedData?.isHeadhunter" effect="light" size="large" class="badge-tag" style="background-color: #fce4ec; color: #c2185b; border: 1px solid #f8bbd0;">
+                <el-icon><UserCheck /></el-icon>&nbsp;猎头/代招岗位
+              </el-tag>
+              <el-tag v-if="job.hrActiveLevel === 'zombie'" effect="dark" type="danger" size="large" class="badge-tag" style="background-color: #ef4444; border-color: #ef4444;">
+                💤 僵尸岗位 ({{ job.hrActiveStatus || '长期未活跃' }})
+              </el-tag>
+              <el-tag v-else-if="job.hrActiveLevel === 'active' && job.hrActiveStatus" effect="light" type="success" size="large" class="badge-tag">
+                ⚡ HR: {{ job.hrActiveStatus }}
+              </el-tag>
+              <el-tag v-else-if="job.hrActiveStatus" effect="light" type="info" size="large" class="badge-tag">
+                HR: {{ job.hrActiveStatus }}
+              </el-tag>
             </div>
+
+            <!-- 僵尸岗位警示提示条 -->
+            <el-alert
+              v-if="job.hrActiveLevel === 'zombie'"
+              title="⚠️ 僵尸岗位预警：该岗位 HR 活跃度极低（{{ job.hrActiveStatus || '数月/年前活跃' }}），投递或打招呼极可能无法得到回复，请优先投递近期活跃岗位！"
+              type="warning"
+              show-icon
+              :closable="false"
+              style="margin-bottom: 16px; border-radius: 8px;"
+            />
 
             <div class="section-title"><el-icon><BarChart /></el-icon> 岗位概览</div>
             <div class="stats-grid">
@@ -39,6 +61,12 @@
               <div class="stat-box"><span class="stat-label">人员规模</span><span class="stat-value">{{ job.normalizedData?.companyScale || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">招聘人员</span><span class="stat-value">{{ job.normalizedData?.hrName || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">招聘职位</span><span class="stat-value">{{ job.normalizedData?.hrPosition || '-' }}</span></div>
+              <div class="stat-box">
+                <span class="stat-label">HR活跃度</span>
+                <span class="stat-value" :style="{ color: job.hrActiveLevel === 'zombie' ? '#ef4444' : (job.hrActiveLevel === 'active' ? '#10b981' : '#64748b'), fontWeight: '600' }">
+                  {{ job.hrActiveStatus || '-' }}
+                </span>
+              </div>
               <div class="stat-box"><span class="stat-label">发布日期</span><span class="stat-value">{{ job.normalizedData?.publishDate || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">更新日期</span><span class="stat-value">{{ job.normalizedData?.updateDate || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">首次收录</span><span class="stat-value">{{ formatDrawerDate(job.firstSeen) }}</span></div>
@@ -68,6 +96,7 @@
           <div class="drawer-left-footer">
             <el-button v-if="getJobUrl(job)" type="primary" tag="a" :href="getJobUrl(job)" target="_blank" rel="noopener"><el-icon><ExternalLink /></el-icon>&nbsp;查看原网页</el-button>
             <el-button type="danger" plain @click="markAsExpired(job)" style="margin-left: 12px;" :loading="marking"><el-icon><Ban /></el-icon>&nbsp;标记失效</el-button>
+            <el-button type="danger" :plain="!job.isBlacklisted" @click="handleToggleBlacklist(job)" style="margin-left: 12px;"><el-icon><ShieldBan /></el-icon>&nbsp;{{ job.isBlacklisted ? '已拉黑企业' : '拉黑该企业' }}</el-button>
           </div>
           
         </div>
@@ -108,17 +137,17 @@
             </div>
 
             <div class="ai-section generator-section" style="margin-bottom: 20px;">
-              <h4><el-icon><Sparkles /></el-icon> AI 自我介绍生成</h4>
+              <h4><el-icon><Sparkles /></el-icon> 🤖 AI 定制打招呼语</h4>
               <div v-if="job.aiResult && job.aiResult.intro">
                 <div class="ai-analysis-content" v-html="formatAiAnalysis(job.aiResult.intro)"></div>
                 <div style="margin-top: 15px; display: flex; gap: 10px;">
-                  <el-button size="small" @click="copyIntro"><el-icon><Copy /></el-icon>&nbsp;复制话术</el-button>
+                  <el-button size="small" @click="copyIntro"><el-icon><Copy /></el-icon>&nbsp;复制打招呼语</el-button>
                   <el-button size="small" type="primary" plain :loading="generatingGreeting" @click="generateGreeting"><el-icon><RefreshCw /></el-icon>&nbsp;重新生成</el-button>
                 </div>
               </div>
               <template v-else>
-                <p class="generator-desc">让 AI 为您生成一份专业且有针对性的打招呼语，提高回复率。</p>
-                <el-button type="primary" plain class="generate-btn" :loading="generatingGreeting" @click="generateGreeting"><el-icon><Rocket /></el-icon>&nbsp;一键生成自我介绍</el-button>
+                <p class="generator-desc">基于您的个人简历画像与当前岗位 JD，一键定制专属、高回复率的求职打招呼语。</p>
+                <el-button type="primary" plain class="generate-btn" :loading="generatingGreeting" @click="generateGreeting"><el-icon><Rocket /></el-icon>&nbsp;🤖 一键生成定制打招呼语</el-button>
               </template>
             </div>
 
@@ -160,7 +189,7 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { JobStatus } from '~/utils/enums'
-import { Building, MapPin, Map, Briefcase, GraduationCap, Globe, BarChart, Gift, FileText, Lightbulb, Sparkles, Rocket, ExternalLink, Tags, Ban, Target, Copy, RefreshCw } from 'lucide-vue-next'
+import { Building, MapPin, Map, Briefcase, GraduationCap, Globe, BarChart, Gift, FileText, Lightbulb, Sparkles, Rocket, ExternalLink, Tags, Ban, Target, Copy, RefreshCw, ShieldBan, UserCheck } from 'lucide-vue-next'
 
 const emit = defineEmits(['status-changed'])
 
@@ -233,6 +262,46 @@ const copyIntro = async () => {
   } catch (err) {
     console.error('Copy failed:', err)
     ElMessage.error('复制失败')
+  }
+}
+
+const handleToggleBlacklist = async (j) => {
+  if (!j) return
+  const comp = j.normalizedData?.companyFullName || j.normalizedData?.brandName || j.companyName
+  if (!comp) {
+    ElMessage.warning('未获取到该职位的公司名称')
+    return
+  }
+
+  if (j.isBlacklisted) {
+    try {
+      const res = await $fetch(`/api/blacklist?companyName=${encodeURIComponent(comp)}`, { method: 'DELETE' })
+      if (res && res.success) {
+        j.isBlacklisted = false
+        ElMessage.success(`已将【${comp}】移出黑名单`)
+        emit('status-changed')
+      } else {
+        ElMessage.error(res?.error || '移出失败')
+      }
+    } catch (err) {
+      ElMessage.error('移出黑名单失败: ' + err.message)
+    }
+  } else {
+    try {
+      const res = await $fetch('/api/blacklist', {
+        method: 'POST',
+        body: { companyName: comp, reason: '用户手动拉黑', source: 'manual' }
+      })
+      if (res && res.success) {
+        j.isBlacklisted = true
+        ElMessage.success(`已将【${comp}】加入黑名单`)
+        emit('status-changed')
+      } else {
+        ElMessage.error(res?.error || '拉黑失败')
+      }
+    } catch (err) {
+      ElMessage.error('加入黑名单失败: ' + err.message)
+    }
   }
 }
 
