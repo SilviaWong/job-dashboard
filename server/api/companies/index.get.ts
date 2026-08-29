@@ -35,6 +35,9 @@ export default defineEventHandler(async (event) => {
         platform: true,
         tags: true,
         updatedAt: true,
+        firstSeen: true,
+        lastSeen: true,
+        descHash: true,
         status: true
       }
     })

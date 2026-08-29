@@ -35,10 +35,17 @@ model Job {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   
+  // 职位生命周期与变动追踪
+  firstSeen    DateTime @default(now())
+  lastSeen     DateTime @default(now())
+  descHash     String?
+  
   // 关联的面试记录 (强绑定，随职位删除而删除)
   interviews   Interview[]
 
   @@unique([jobId, platform])
+  @@index([firstSeen])
+  @@index([lastSeen])
 }
 
 // 独立的 AI 结果表（脱离职位独立存在，不设强外键）

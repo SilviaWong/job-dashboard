@@ -45,6 +45,12 @@
                 <el-option label="30k-50k" value="30-50"></el-option>
                 <el-option label="50k以上" value="50-999"></el-option>
               </el-select>
+              <el-select v-model="lifecycleFilter" placeholder="时效筛选" style="width: 140px" @change="() => fetchJobs(false)">
+                <el-option label="全部时效" value="all"></el-option>
+                <el-option label="🟢 新发 (7天内)" value="new_7d"></el-option>
+                <el-option label="🔥 活跃 (30天内)" value="new_30d"></el-option>
+                <el-option label="⚠️ 常驻 (>60天)" value="stale_60d"></el-option>
+              </el-select>
               <el-radio-group v-model="statusFilter" size="small" @change="() => fetchJobs(false)">
                 <el-radio-button value="all">全部</el-radio-button>
                 <el-radio-button :value="JobStatus.NORMAL">常规</el-radio-button>
@@ -152,6 +158,14 @@
               <!-- Special status badges -->
               <el-tag v-if="job.status === JobStatus.EXPIRED" type="danger" size="small" effect="dark" style="border: none;">已失效</el-tag>
               
+              <!-- 职位生命周期标记 (新发 / 常驻) -->
+              <el-tag v-if="isNewJob(job)" type="success" size="small" effect="plain" style="border-radius: 4px; font-weight: 600;">
+                🟢 {{ getNewJobText(job) }}
+              </el-tag>
+              <el-tag v-else-if="isStaleJob(job)" type="warning" size="small" effect="plain" style="border-radius: 4px; font-weight: 500;">
+                ⚠️ 常驻职位 (&gt;60天)
+              </el-tag>
+
               <template v-if="job.isHidden && job.tags && Array.isArray(job.tags) && job.tags.length > 0">
                 <el-tag v-for="(t, idx) in job.tags" :key="'reason-'+idx" type="info" size="small" effect="dark" style="border: none;">
                   🚫 {{ t }}
@@ -178,6 +192,8 @@
 
             <!-- Meta Info -->
             <div class="job-meta">
+              <span v-if="job.firstSeen" class="meta-item" :title="'首次收录: ' + job.firstSeen">发现: {{ formatTimeAgo(job.firstSeen) }}</span>
+              <span v-if="job.lastSeen && job.lastSeen !== job.firstSeen" class="meta-item" :title="'最近活跃: ' + job.lastSeen">活跃: {{ formatTimeAgo(job.lastSeen) }}</span>
               <span v-if="job.normalizedData?.publishDate" class="meta-item">首发: {{ job.normalizedData.publishDate }}</span>
               <span v-if="job.normalizedData?.updateDate" class="meta-item">修改: {{ job.normalizedData.updateDate }}</span>
               <span class="meta-item">状态: {{ job.normalizedData?.jobStatus || job.status || '-' }}</span>
@@ -351,11 +367,43 @@ const educationFilter = ref('all')
 const keywordFilter = ref('')
 const aiDiagnosisFilter = ref('all')
 const salaryFilter = ref('all')
+const lifecycleFilter = ref('all')
 
 const jobDetailDrawerRef = ref(null)
 
 const loadMoreTrigger = ref(null)
 let observer = null
+
+const isNewJob = (job) => {
+  const t = job.firstSeen ? new Date(job.firstSeen).getTime() : (job.createdAt ? new Date(job.createdAt).getTime() : null)
+  if (!t) return false
+  return (Date.now() - t) <= 7 * 24 * 60 * 60 * 1000
+}
+
+const getNewJobText = (job) => {
+  const t = job.firstSeen ? new Date(job.firstSeen).getTime() : (job.createdAt ? new Date(job.createdAt).getTime() : null)
+  if (!t) return '新发职位'
+  const days = Math.max(1, Math.floor((Date.now() - t) / (24 * 60 * 60 * 1000)))
+  return days <= 1 ? '今日新发' : `${days}天前新发`
+}
+
+const isStaleJob = (job) => {
+  const t = job.firstSeen ? new Date(job.firstSeen).getTime() : (job.createdAt ? new Date(job.createdAt).getTime() : null)
+  if (!t) return false
+  return (Date.now() - t) >= 60 * 24 * 60 * 60 * 1000
+}
+
+const formatTimeAgo = (dateStr) => {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return ''
+  const diffDays = Math.floor((Date.now() - d.getTime()) / (24 * 60 * 60 * 1000))
+  if (diffDays <= 0) return '今天'
+  if (diffDays === 1) return '昨天'
+  if (diffDays < 30) return `${diffDays}天前`
+  if (diffDays < 60) return '1个月前'
+  return `${Math.floor(diffDays / 30)}个月前`
+}
 
 const fetchJobs = async (isLoadMore = false) => {
   if (!isLoadMore) {
@@ -381,6 +429,7 @@ const fetchJobs = async (isLoadMore = false) => {
       keyword: keywordFilter.value,
       aiDiagnosisFilter: aiDiagnosisFilter.value,
       salaryFilter: salaryFilter.value,
+      lifecycleFilter: lifecycleFilter.value,
     })
     const res = await $fetch(`/api/jobs?${params.toString()}`)
     if (res && res.success && Array.isArray(res.data)) {

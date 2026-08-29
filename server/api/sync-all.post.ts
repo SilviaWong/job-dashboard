@@ -1,4 +1,5 @@
 import { getPrisma } from '#prisma'
+import { computeDescHash } from '../utils/descHash'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -315,15 +316,56 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  // Preload existing jobs for fast in-memory change detection
+  const existingJobs = await prisma.job.findMany({
+    select: {
+      jobId: true,
+      platform: true,
+      descHash: true,
+      salary: true,
+      title: true,
+      companyName: true
+    }
+  })
+  const existingJobMap = new Map<string, any>()
+  for (const ej of existingJobs) {
+    existingJobMap.set(`${ej.jobId}_${ej.platform}`, ej)
+  }
+
+  const changedJobs: any[] = []
+
   // Upsert all collected jobs
   for (const job of allJobs) {
     if (job.jobId && job.jobId !== 'undefined' && job.jobId !== 'null') {
       try {
+        const descHash = computeDescHash(job)
+        job.descHash = descHash
+        job.firstSeen = job.createdAt
+        job.lastSeen = job.updatedAt
+
+        const key = `${job.jobId}_${job.platform}`
+        const existing = existingJobMap.get(key)
+        if (existing) {
+          const descChanged = !!(existing.descHash && existing.descHash !== descHash)
+          const salaryChanged = !!(existing.salary && job.salary && existing.salary !== job.salary)
+          if (descChanged || salaryChanged) {
+            changedJobs.push({
+              jobId: job.jobId,
+              title: job.title,
+              companyName: job.companyName,
+              platform: job.platform,
+              oldSalary: existing.salary,
+              newSalary: job.salary,
+              reason: descChanged && salaryChanged ? 'JD描述与薪资均变更' : (salaryChanged ? '薪资调整' : 'JD描述更新')
+            })
+          }
+        }
+
         await prisma.job.upsert({
           where: { 
-            jobId_dataSource: {
+            jobId_platform: {
               jobId: job.jobId,
-              dataSource: job.dataSource
+              platform: job.platform
             }
           },
           update: {
@@ -333,7 +375,9 @@ export default defineEventHandler(async (event) => {
             location: job.location,
             platform: job.platform,
             rawData: job.rawData,
-            updatedAt: job.updatedAt
+            updatedAt: job.updatedAt,
+            lastSeen: job.updatedAt,
+            descHash: descHash
           },
           create: job
         })
@@ -462,7 +506,13 @@ export default defineEventHandler(async (event) => {
 
   return {
     success: true,
-    message: '全量配置同步完成',
-    results: syncResults
+    message: changedJobs.length > 0
+      ? `全量配置与职位同步完成！检测到 ${changedJobs.length} 个岗位信息变更（薪资调整或JD修改）`
+      : '全量配置同步完成',
+    results: {
+      ...syncResults,
+      changedJobsCount: changedJobs.length
+    },
+    changedJobs
   }
 })

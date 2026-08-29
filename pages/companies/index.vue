@@ -3,8 +3,25 @@
     <el-card shadow="never">
       <template #header>
         <div class="card-header">
-          <span style="font-size: 18px; font-weight: 600;">🏢 企业全景</span>
-          <div style="display: flex; gap: 16px; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 14px;">
+            <span style="font-size: 18px; font-weight: 600;">🏢 企业全景</span>
+            <!-- 企业横向对比按钮 -->
+            <el-badge :value="comparedCompanies.length" :hidden="comparedCompanies.length === 0" type="danger">
+              <el-button 
+                type="warning" 
+                size="small" 
+                :disabled="comparedCompanies.length < 2"
+                @click="openCompareModal"
+              >
+                ⚖️ 横向对比 ({{ comparedCompanies.length }}/4)
+              </el-button>
+            </el-badge>
+            <el-button v-if="comparedCompanies.length > 0" size="small" text type="info" @click="clearCompared">
+              清空对比
+            </el-button>
+          </div>
+
+          <div style="display: flex; gap: 14px; align-items: center; flex-wrap: wrap;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="font-size: 14px; color: #606266;">类型:</span>
               <el-radio-group v-model="agencyFilter" size="small" @change="() => fetchCompanies(false)">
@@ -33,7 +50,7 @@
             <el-input
               v-model="searchQuery"
               placeholder="搜索公司名称..."
-              style="width: 300px"
+              style="width: 260px"
               clearable
             >
               <template #prefix>
@@ -48,8 +65,9 @@
       </template>
 
       <div v-loading="loading && page === 1">
-        <div style="margin-bottom: 15px; color: #606266; font-size: 14px;">
-          共收录 <strong>{{ totalCompanies }}</strong> 家公司
+        <div style="margin-bottom: 15px; color: #606266; font-size: 14px; display: flex; justify-content: space-between; align-items: center;">
+          <span>共收录 <strong>{{ totalCompanies }}</strong> 家公司</span>
+          <span style="font-size: 12px; color: #94a3b8;">提示：勾选企业标题左侧的多选框，可选择 2~4 家企业进行多维度横向对比</span>
         </div>
         
         <el-collapse v-if="companies.length > 0">
@@ -61,6 +79,14 @@
             <template #title>
               <div class="company-title-wrapper">
                 <div class="company-title">
+                  <!-- 对比复选框 -->
+                  <el-checkbox
+                    :model-value="isCompanyCompared(company)"
+                    @change="(val) => toggleCompareCompany(company, val)"
+                    @click.stop
+                    style="margin-right: 10px;"
+                    title="勾选加入企业横向对比 (最多4家)"
+                  />
                   <span class="company-name" :class="{'is-agency-name': company.isAgency}">{{ company.companyName }}</span>
                   <el-switch
                     v-model="company.isAgency"
@@ -69,6 +95,7 @@
                     inactive-text="直招"
                     style="margin-left: 10px; margin-right: 10px;"
                     @change="toggleAgency(company)"
+                    @click.stop
                   />
                   <el-tag size="small" type="info" v-if="company.rawData?.industry">
                     {{ company.rawData.industry }}
@@ -84,21 +111,63 @@
                   </el-tag>
                 </div>
                 
-                <div class="platform-tags">
-                  <el-tag 
-                    v-for="plat in company.platformSources" 
-                    :key="plat" 
+                <div class="company-header-actions" @click.stop>
+                  <div class="platform-tags">
+                    <el-tag 
+                      v-for="plat in company.platformSources" 
+                      :key="plat" 
+                      size="small"
+                      :type="getPlatformType(plat)"
+                      effect="dark"
+                    >
+                      {{ plat }}
+                    </el-tag>
+                  </div>
+                  <!-- 打开画像与趋势弹窗 -->
+                  <el-button
                     size="small"
-                    :type="getPlatformType(plat)"
-                    effect="dark"
+                    type="primary"
+                    plain
+                    round
+                    style="margin-left: 10px;"
+                    @click.stop="openAnalyticsModal(company)"
                   >
-                    {{ plat }}
-                  </el-tag>
+                    📈 招聘画像与趋势
+                  </el-button>
                 </div>
               </div>
             </template>
             
             <div class="company-content">
+              <!-- 企业简明招聘雷达条 -->
+              <div class="company-quick-radar">
+                <div class="radar-item">
+                  <span class="radar-label">招聘热度</span>
+                  <span class="radar-val" :style="{ color: getCompanyHeat(company).color }">
+                    {{ getCompanyHeat(company).score }}分 · {{ getCompanyHeat(company).text }}
+                  </span>
+                </div>
+                <div class="radar-divider"></div>
+                <div class="radar-item">
+                  <span class="radar-label">近30天新发</span>
+                  <span class="radar-val">{{ getCompanyRecent30d(company) }} 岗</span>
+                </div>
+                <div class="radar-divider"></div>
+                <div class="radar-item">
+                  <span class="radar-label">预估薪资</span>
+                  <span class="radar-val">{{ getCompanySalary(company) }}</span>
+                </div>
+                <el-button 
+                  size="small" 
+                  type="primary" 
+                  link 
+                  style="margin-left: auto;" 
+                  @click.stop="openAnalyticsModal(company)"
+                >
+                  查看月度趋势折线与技能画像 →
+                </el-button>
+              </div>
+
               <div class="company-info-section" v-if="company.rawData?.companyDesc || company.rawData?.welfare?.length">
                 <div v-if="company.rawData?.companyDesc">
                   <h4 style="margin-top: 5px;">公司介绍</h4>
@@ -177,7 +246,10 @@
       </div>
     </el-card>
 
+    <!-- 模态框组件 -->
     <JobDetailDrawer ref="jobDetailDrawerRef" @status-changed="handleJobStatusChange" />
+    <CompanyCompareModal ref="compareModalRef" />
+    <CompanyAnalyticsModal ref="analyticsModalRef" />
   </div>
 </template>
 
@@ -185,6 +257,7 @@
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loader2, Bot } from 'lucide-vue-next'
+import { parseSalary } from '~/utils/companyAnalytics'
 
 const loading = ref(false)
 const companies = ref([])
@@ -198,6 +271,86 @@ const agencyFilter = ref('direct')
 const platformFilter = ref('all')
 
 const jobDetailDrawerRef = ref(null)
+const compareModalRef = ref(null)
+const analyticsModalRef = ref(null)
+
+// 企业横向对比状态
+const comparedCompanies = ref([])
+
+const isCompanyCompared = (company) => {
+  return comparedCompanies.value.some(c => c.companyName === company.companyName)
+}
+
+const toggleCompareCompany = (company, checked) => {
+  if (checked) {
+    if (comparedCompanies.value.length >= 4) {
+      ElMessage.warning('最多同时选择 4 家企业进行对比')
+      return
+    }
+    if (!isCompanyCompared(company)) {
+      comparedCompanies.value.push(company)
+      ElMessage.success(`已添加「${company.companyName}」至对比池 (${comparedCompanies.value.length}/4)`)
+    }
+  } else {
+    comparedCompanies.value = comparedCompanies.value.filter(c => c.companyName !== company.companyName)
+  }
+}
+
+const clearCompared = () => {
+  comparedCompanies.value = []
+}
+
+const openCompareModal = () => {
+  if (comparedCompanies.value.length < 2) {
+    ElMessage.warning('请勾选至少 2 家企业进行横向对比')
+    return
+  }
+  if (compareModalRef.value) {
+    compareModalRef.value.open(comparedCompanies.value)
+  }
+}
+
+const openAnalyticsModal = (company) => {
+  if (analyticsModalRef.value) {
+    analyticsModalRef.value.open(company)
+  }
+}
+
+// 快速雷达指标辅助函数
+const getCompanyRecent30d = (company) => {
+  const jobs = company.jobs || []
+  const ms30d = 30 * 24 * 60 * 60 * 1000
+  const now = Date.now()
+  return jobs.filter(j => {
+    const t = j.firstSeen ? new Date(j.firstSeen).getTime() : (j.createdAt ? new Date(j.createdAt).getTime() : now)
+    return (now - t) <= ms30d
+  }).length
+}
+
+const getCompanyHeat = (company) => {
+  const jobs = company.jobs || []
+  if (!jobs.length) return { score: 0, text: '无在招', color: '#94a3b8' }
+  const recent30d = getCompanyRecent30d(company)
+  const score = Math.min(100, Math.round((recent30d / jobs.length) * 100))
+  if (score >= 60) return { score, text: '扩招旺季', color: '#ea580c' }
+  if (score >= 30) return { score, text: '平稳补招', color: '#16a34a' }
+  return { score, text: '招聘放缓', color: '#64748b' }
+}
+
+const getCompanySalary = (company) => {
+  const jobs = company.jobs || []
+  const valid = []
+  for (const j of jobs) {
+    const { minK, maxK } = parseSalary(j.salary)
+    if (minK !== null && maxK !== null) {
+      valid.push({ minK, maxK })
+    }
+  }
+  if (!valid.length) return '面议'
+  const avgMin = Math.round(valid.reduce((acc, s) => acc + s.minK, 0) / valid.length)
+  const avgMax = Math.round(valid.reduce((acc, s) => acc + s.maxK, 0) / valid.length)
+  return `${avgMin}~${avgMax}K`
+}
 
 const loadMoreTrigger = ref(null)
 let observer = null
@@ -239,7 +392,6 @@ const viewDetails = (job) => {
 
 const handleJobStatusChange = (jobData, status) => {
   if (status === 'expired') {
-    // 更新状态而不是移除它，使其能显示为灰色失效状态
     companies.value.forEach(company => {
       if (company.jobs) {
         const job = company.jobs.find(j => j.jobId === jobData.jobId)
@@ -261,24 +413,28 @@ const toggleAgency = async (company) => {
       }
     })
     if (res.success) {
-      ElMessage.success(`已标记 ${company.companyName} 为 ${company.isAgency ? '代招/猎头' : '直招'}`)
+      ElMessage.success('更新成功')
+      if (agencyFilter.value !== 'all') {
+        fetchCompanies(false)
+      }
     } else {
+      ElMessage.error(res.error || '更新失败')
       company.isAgency = !company.isAgency
-      ElMessage.error(res.error || '操作失败')
     }
   } catch (error) {
+    console.error('Failed to toggle agency:', error)
+    ElMessage.error('更新失败')
     company.isAgency = !company.isAgency
-    ElMessage.error('操作失败')
   }
 }
 
 const fetchCompanies = async (isLoadMore = false) => {
-  if (loading.value) return
-  
   if (!isLoadMore) {
     page.value = 1
     hasMore.value = true
   }
+
+  if (!hasMore.value) return
 
   loading.value = true
   try {
@@ -292,57 +448,52 @@ const fetchCompanies = async (isLoadMore = false) => {
         platformFilter: platformFilter.value
       }
     })
+
     if (res.success) {
       if (isLoadMore) {
-        companies.value.push(...res.data)
+        companies.value = [...companies.value, ...res.data]
       } else {
         companies.value = res.data
       }
-      totalCompanies.value = res.total || 0
+      totalCompanies.value = res.total
       
-      if (res.data.length < pageSize.value) {
+      if (companies.value.length >= res.total) {
         hasMore.value = false
       }
     }
   } catch (error) {
-    ElMessage.error('获取公司数据失败')
+    console.error('Failed to fetch companies:', error)
+    ElMessage.error('获取企业数据失败')
   } finally {
     loading.value = false
   }
 }
 
-const loadMore = () => {
-  if (!loading.value && hasMore.value) {
-    page.value++
-    fetchCompanies(true)
-  }
-}
-
-watch(loadMoreTrigger, (el) => {
-  if (el) {
-    if (observer) {
-      observer.disconnect()
-    }
-    observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && hasMore.value && !loading.value) {
-        loadMore()
-      }
-    }, { rootMargin: '250px' })
-    observer.observe(el)
-  }
-})
-
-// Debounce search query
+// 搜索防抖
 let searchTimeout = null
 watch(searchQuery, () => {
-  if (searchTimeout) clearTimeout(searchTimeout)
+  clearTimeout(searchTimeout)
   searchTimeout = setTimeout(() => {
     fetchCompanies(false)
-  }, 500)
+  }, 300)
 })
 
+// Setup intersection observer for infinite scrolling
 onMounted(() => {
-  fetchCompanies(false)
+  fetchCompanies()
+
+  observer = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && hasMore.value && !loading.value) {
+      page.value++
+      fetchCompanies(true)
+    }
+  }, {
+    threshold: 0.1
+  })
+
+  if (loadMoreTrigger.value) {
+    observer.observe(loadMoreTrigger.value)
+  }
 })
 
 onUnmounted(() => {
@@ -353,99 +504,157 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.companies-page {
+  padding: 0;
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
 }
+
 .company-title-wrapper {
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  align-items: center;
   width: 100%;
   padding-right: 15px;
 }
+
 .company-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
+  flex-wrap: wrap;
 }
-.platform-tags {
-  display: flex;
-  gap: 5px;
-}
+
 .company-name {
-  font-size: 16px;
   font-weight: 600;
-  color: #303133;
-}
-.is-agency-name {
-  color: #c2185b !important;
-}
-.company-content {
-  padding: 10px 15px;
-}
-.company-info-section {
-  background-color: #f8f9fa;
-  padding: 15px;
-  border-radius: 8px;
-  margin-bottom: 20px;
-}
-.company-desc {
-  color: #606266;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  font-size: 14px;
-}
-.company-welfare h4, .company-info-section h4 {
-  margin-top: 15px;
-  margin-bottom: 10px;
+  font-size: 16px;
   color: #303133;
 }
 
-/* 职位卡片网格样式 */
+.is-agency-name {
+  color: #c2185b;
+}
+
+.company-header-actions {
+  display: flex;
+  align-items: center;
+}
+
+.platform-tags {
+  display: flex;
+  gap: 6px;
+}
+
+/* Quick Radar Bar */
+.company-quick-radar {
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 10px 16px;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.radar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.radar-label {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.radar-val {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.radar-divider {
+  width: 1px;
+  height: 14px;
+  background: #cbd5e1;
+}
+
+.company-content {
+  padding: 10px 0;
+}
+
+.company-info-section {
+  background-color: #f8f9fa;
+  padding: 15px 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border-left: 4px solid #409eff;
+}
+
+.company-desc {
+  color: #606266;
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 5px 0 15px 0;
+  white-space: pre-wrap;
+}
+
+.company-welfare h4, .company-info-section h4 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  color: #303133;
+}
+
 .job-card-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
 }
+
 .job-card {
-  background: #ffffff;
   border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 20px;
+  border-radius: 8px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background-color: #fff;
   display: flex;
   flex-direction: column;
-  transition: transform 0.2s, box-shadow 0.2s;
-  cursor: pointer;
 }
-.job-card.is-expired,
-.job-card.is-hidden {
-  background-color: #f8fafc;
-  border-color: #e2e8f0;
-}
-.job-card.is-expired .job-title,
-.job-card.is-expired .job-salary,
-.job-card.is-expired .job-card-info,
-.job-card.is-expired .job-date,
-.job-card.is-hidden .job-title,
-.job-card.is-hidden .job-salary,
-.job-card.is-hidden .job-card-info,
-.job-card.is-hidden .job-date {
-  color: #94a3b8 !important;
-}
+
 .job-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  border-color: #cbd5e1;
 }
+
+.job-card.is-expired {
+  opacity: 0.6;
+  background-color: #fafafa;
+}
+
+.job-card.is-hidden {
+  opacity: 0.5;
+  background-color: #f5f5f5;
+  border-style: dashed;
+}
+
 .job-card-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 8px;
 }
+
 .job-title {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
   color: #1e293b;
   margin: 0;
@@ -454,6 +663,7 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   max-width: 250px;
 }
+
 .job-salary-score {
   display: flex;
   flex-direction: column;
@@ -461,6 +671,7 @@ onUnmounted(() => {
   gap: 6px;
   flex-shrink: 0;
 }
+
 .inline-score-badge {
   font-size: 11px;
   padding: 2px 6px;
@@ -470,22 +681,26 @@ onUnmounted(() => {
   align-items: center;
   white-space: nowrap;
 }
+
 .job-salary {
   font-size: 16px;
   font-weight: bold;
   color: #f56c6c;
 }
+
 .job-card-info {
   font-size: 14px;
   color: #64748b;
   margin-bottom: 12px;
 }
+
 .job-card-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 16px;
 }
+
 .job-tag {
   background: #f1f5f9;
   color: #475569;
@@ -493,6 +708,7 @@ onUnmounted(() => {
   border-radius: 4px;
   font-size: 12px;
 }
+
 .job-card-footer {
   margin-top: auto;
   display: flex;
@@ -501,6 +717,7 @@ onUnmounted(() => {
   padding-top: 10px;
   border-top: 1px solid #f1f5f9;
 }
+
 .job-hr {
   font-size: 13px;
   color: #64748b;
@@ -509,6 +726,7 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   max-width: 55%;
 }
+
 .job-date {
   font-size: 12px;
   color: #94a3b8;

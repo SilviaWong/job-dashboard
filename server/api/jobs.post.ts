@@ -41,9 +41,16 @@ export default defineEventHandler(async (event) => {
       console.error('Sync failures:', failures.map(f => f.reason))
     }
 
+    const changedJobs = results
+      .filter(r => r.status === 'fulfilled' && (r.value as any)?.changeDetail)
+      .map(r => (r.value as any).changeDetail)
+
     return {
       success: true,
-      message: `Successfully processed ${successCount} out of ${body.length} jobs.`
+      message: changedJobs.length > 0
+        ? `处理完成，检测到 ${changedJobs.length} 个岗位发生变更（薪资调整或JD修改）`
+        : `Successfully processed ${successCount} out of ${body.length} jobs.`,
+      changedJobs
     }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }

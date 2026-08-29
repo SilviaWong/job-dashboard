@@ -1,4 +1,5 @@
 import type { JobProcessor } from './types'
+import { computeDescHash } from '../descHash'
 
 export const processDefaultJob: JobProcessor = async (job, platform, prisma) => {
   const jobId = job.jobId || job['职位ID'] || ''
@@ -10,12 +11,16 @@ export const processDefaultJob: JobProcessor = async (job, platform, prisma) => 
   const stringifiedData = JSON.stringify(job)
   const createdAt = new Date()
   const updatedAt = new Date()
+  const descHash = computeDescHash(job)
 
   const updateData: any = {
     title: String(jobTitle),
     companyName: String(companyName),
     salary: String(salary),
     location: String(location),
+    updatedAt: updatedAt,
+    lastSeen: updatedAt,
+    descHash: descHash,
     rawData: stringifiedData
   }
 
@@ -29,7 +34,36 @@ export const processDefaultJob: JobProcessor = async (job, platform, prisma) => 
     dataSource: job.dataSource || 'unknown',
     createdAt: createdAt,
     updatedAt: updatedAt,
+    firstSeen: createdAt,
+    lastSeen: updatedAt,
+    descHash: descHash,
     rawData: stringifiedData
+  }
+
+  // 检查已有职位指纹与薪资变化
+  const existingJob = await prisma.job.findUnique({
+    where: {
+      jobId_platform: {
+        jobId: String(jobId),
+        platform: platform
+      }
+    },
+    select: {
+      descHash: true,
+      salary: true,
+      title: true
+    }
+  })
+
+  let isChanged = false
+  let changeReason = ''
+  if (existingJob) {
+    const descChanged = !!(existingJob.descHash && existingJob.descHash !== descHash)
+    const salaryChanged = !!(existingJob.salary && existingJob.salary !== String(salary))
+    if (descChanged || salaryChanged) {
+      isChanged = true
+      changeReason = descChanged && salaryChanged ? 'JD描述与薪资均变更' : (salaryChanged ? '薪资调整' : 'JD描述更新')
+    }
   }
 
   // 先保存职位数据
@@ -43,6 +77,19 @@ export const processDefaultJob: JobProcessor = async (job, platform, prisma) => 
     update: updateData,
     create: createData
   })
+
+  if (isChanged) {
+    ;(savedJob as any).isChanged = true
+    ;(savedJob as any).changeDetail = {
+      jobId: String(jobId),
+      title: String(jobTitle),
+      companyName: String(companyName),
+      platform: platform,
+      oldSalary: existingJob?.salary,
+      newSalary: String(salary),
+      reason: changeReason
+    }
+  }
 
   // 再保存公司数据
   if (companyName) {

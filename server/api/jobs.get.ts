@@ -14,6 +14,7 @@ export default defineEventHandler(async (event) => {
   const education = query.education as string || 'all'
   const keyword = query.keyword as string || ''
   const salaryFilter = query.salaryFilter as string || 'all'
+  const lifecycleFilter = query.lifecycleFilter as string || 'all'
 
   const page = parseInt(query.page as string) || 1
   const pageSize = parseInt(query.pageSize as string) || 20
@@ -61,6 +62,21 @@ export default defineEventHandler(async (event) => {
           { companyName: { contains: keyword } }
         ]
       })
+    }
+
+    // 职位生命周期过滤 (新发7天内 / 活跃30天内 / 常驻大于60天)
+    if (lifecycleFilter !== 'all') {
+      const now = new Date()
+      if (lifecycleFilter === 'new_7d') {
+        const date7dAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+        andConditions.push({ firstSeen: { gte: date7dAgo } })
+      } else if (lifecycleFilter === 'new_30d') {
+        const date30dAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+        andConditions.push({ firstSeen: { gte: date30dAgo } })
+      } else if (lifecycleFilter === 'stale_60d') {
+        const date60dAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
+        andConditions.push({ firstSeen: { lte: date60dAgo } })
+      }
     }
     
     // AI Diagnosis filter

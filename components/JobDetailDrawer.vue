@@ -39,10 +39,11 @@
               <div class="stat-box"><span class="stat-label">人员规模</span><span class="stat-value">{{ job.normalizedData?.companyScale || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">招聘人员</span><span class="stat-value">{{ job.normalizedData?.hrName || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">招聘职位</span><span class="stat-value">{{ job.normalizedData?.hrPosition || '-' }}</span></div>
-              <div class="stat-box"><span class="stat-label">所属公司</span><span class="stat-value">{{ job.normalizedData?.hrCompanyName || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">发布日期</span><span class="stat-value">{{ job.normalizedData?.publishDate || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">更新日期</span><span class="stat-value">{{ job.normalizedData?.updateDate || '-' }}</span></div>
-              <div class="stat-box"><span class="stat-label">采集日期</span><span class="stat-value">{{ job.normalizedData?.spiderDate || '-' }}</span></div>
+              <div class="stat-box"><span class="stat-label">首次收录</span><span class="stat-value">{{ formatDrawerDate(job.firstSeen) }}</span></div>
+              <div class="stat-box"><span class="stat-label">最近活跃</span><span class="stat-value">{{ formatDrawerDate(job.lastSeen) }}</span></div>
+              <div class="stat-box" v-if="job.descHash"><span class="stat-label">JD指纹</span><span class="stat-value" :title="job.descHash">{{ job.descHash.slice(0, 8) }}...</span></div>
             </div>
 
             <template v-if="job.normalizedData?.welfareList?.length">
@@ -168,6 +169,13 @@ const job = ref(null)
 const marking = ref(false)
 const predicting = ref(false)
 const generatingGreeting = ref(false)
+
+const formatDrawerDate = (d) => {
+  if (!d) return '-'
+  const date = new Date(d)
+  if (isNaN(date.getTime())) return String(d)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
 
 const generatePredictions = async () => {
   if (!job.value || !job.value.jobId) return

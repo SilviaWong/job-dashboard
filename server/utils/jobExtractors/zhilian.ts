@@ -1,5 +1,6 @@
 import type { JobProcessor } from './types'
 import { cleanCompanyName } from '../companyProcessors/types'
+import { computeDescHash } from '../descHash'
 
 export const processZhilianJob: JobProcessor = async (job, platform, prisma) => {
   // 智联招聘的数据抓取有两种方式，获取到的职位json格式不一样，需要分别处理
@@ -198,6 +199,7 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
   const stringifiedData = JSON.stringify(job)
   const createdAt = new Date()
   const updatedAt = new Date()
+  const descHash = computeDescHash(job)
 
   // 组装更新职位数据
   const updateData: any = {
@@ -209,7 +211,9 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
     location: String(location),
     education: String(education),
     dataSource: job.dataSource || '智联',
-    updatedAt: updatedAt
+    updatedAt: updatedAt,
+    lastSeen: updatedAt,
+    descHash: descHash
   }
 
   // 组装创建职位数据
@@ -225,7 +229,10 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
     platform: platform,
     dataSource: job.dataSource || '智联',
     createdAt: createdAt,
-    updatedAt: updatedAt
+    updatedAt: updatedAt,
+    firstSeen: createdAt,
+    lastSeen: updatedAt,
+    descHash: descHash
   }
 
   // zhilian_scraped_data_v1 的数据使用rawData2字段
@@ -240,6 +247,32 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
     createData.rawData = stringifiedData
   }
 
+  // 检查已有职位指纹与薪资变化
+  const existingJob = await prisma.job.findUnique({
+    where: {
+      jobId_platform: {
+        jobId: String(jobId),
+        platform: platform
+      }
+    },
+    select: {
+      descHash: true,
+      salary: true,
+      title: true
+    }
+  })
+
+  let isChanged = false
+  let changeReason = ''
+  if (existingJob) {
+    const descChanged = !!(existingJob.descHash && existingJob.descHash !== descHash)
+    const salaryChanged = !!(existingJob.salary && existingJob.salary !== String(salary))
+    if (descChanged || salaryChanged) {
+      isChanged = true
+      changeReason = descChanged && salaryChanged ? 'JD描述与薪资均变更' : (salaryChanged ? '薪资调整' : 'JD描述更新')
+    }
+  }
+
   // 先保存职位数据
   const savedJob = await prisma.job.upsert({
     where: {
@@ -251,6 +284,19 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
     update: updateData,
     create: createData
   })
+
+  if (isChanged) {
+    ;(savedJob as any).isChanged = true
+    ;(savedJob as any).changeDetail = {
+      jobId: String(jobId),
+      title: String(jobTitle),
+      companyName: String(cleanName),
+      platform: platform,
+      oldSalary: existingJob?.salary,
+      newSalary: String(salary),
+      reason: changeReason
+    }
+  }
 
   // 再保存公司数据
 

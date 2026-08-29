@@ -1,5 +1,6 @@
 import type { JobProcessor } from './types'
 import { cleanCompanyName } from '../companyProcessors/types'
+import { computeDescHash } from '../descHash'
 
 export const process51Job: JobProcessor = async (job, platform, prisma) => {
   // 解析 51job 的职位数据
@@ -18,6 +19,7 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
   const stringifiedData = JSON.stringify(job)
   const createdAt = new Date()
   const updatedAt = new Date()
+  const descHash = computeDescHash(job)
 
   // 组装职位更新数据
   const updateData: any = {
@@ -29,6 +31,8 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
     location: String(location),
     education: String(education),
     updatedAt: updatedAt,
+    lastSeen: updatedAt,
+    descHash: descHash,
     rawData: stringifiedData
   }
 
@@ -46,6 +50,9 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
     dataSource: job.dataSource || '51job',
     createdAt: createdAt,
     updatedAt: updatedAt,
+    firstSeen: createdAt,
+    lastSeen: updatedAt,
+    descHash: descHash,
     rawData: stringifiedData
   }
 
@@ -55,6 +62,32 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
     companyName: companyName,
     companyFullName: companyFullName,
     sourcePlatform: '51job'
+  }
+
+  // 检查已有职位指纹与薪资变化
+  const existingJob = await prisma.job.findUnique({
+    where: {
+      jobId_platform: {
+        jobId: String(jobId),
+        platform: platform
+      }
+    },
+    select: {
+      descHash: true,
+      salary: true,
+      title: true
+    }
+  })
+
+  let isChanged = false
+  let changeReason = ''
+  if (existingJob) {
+    const descChanged = !!(existingJob.descHash && existingJob.descHash !== descHash)
+    const salaryChanged = !!(existingJob.salary && existingJob.salary !== String(salary))
+    if (descChanged || salaryChanged) {
+      isChanged = true
+      changeReason = descChanged && salaryChanged ? 'JD描述与薪资均变更' : (salaryChanged ? '薪资调整' : 'JD描述更新')
+    }
   }
 
   // 先保存职位数据
@@ -68,6 +101,19 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
     update: updateData,
     create: createData
   })
+
+  if (isChanged) {
+    ;(savedJob as any).isChanged = true
+    ;(savedJob as any).changeDetail = {
+      jobId: String(jobId),
+      title: String(jobTitle),
+      companyName: String(cleanName),
+      platform: platform,
+      oldSalary: existingJob?.salary,
+      newSalary: String(salary),
+      reason: changeReason
+    }
+  }
 
   // 再保存公司数据
   // 对公司名称和公司全称进行中文括号转英文括号，以及去除空格的处理
