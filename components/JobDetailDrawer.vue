@@ -61,6 +61,7 @@
               <div class="stat-box"><span class="stat-label">人员规模</span><span class="stat-value">{{ job.normalizedData?.companyScale || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">招聘人员</span><span class="stat-value">{{ job.normalizedData?.hrName || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">招聘职位</span><span class="stat-value">{{ job.normalizedData?.hrPosition || '-' }}</span></div>
+              <div class="stat-box" v-if="job.normalizedData?.hrCompanyName"><span class="stat-label">所属公司</span><span class="stat-value" :title="job.normalizedData.hrCompanyName">{{ job.normalizedData.hrCompanyName }}</span></div>
               <div class="stat-box">
                 <span class="stat-label">HR活跃度</span>
                 <span class="stat-value" :style="{ color: job.hrActiveLevel === 'zombie' ? '#ef4444' : (job.hrActiveLevel === 'active' ? '#10b981' : '#64748b'), fontWeight: '600' }">
@@ -71,7 +72,6 @@
               <div class="stat-box"><span class="stat-label">更新日期</span><span class="stat-value">{{ job.normalizedData?.updateDate || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">首次收录</span><span class="stat-value">{{ formatDrawerDate(job.firstSeen) }}</span></div>
               <div class="stat-box"><span class="stat-label">最近活跃</span><span class="stat-value">{{ formatDrawerDate(job.lastSeen) }}</span></div>
-              <div class="stat-box" v-if="job.descHash"><span class="stat-label">JD指纹</span><span class="stat-value" :title="job.descHash">{{ job.descHash.slice(0, 8) }}...</span></div>
             </div>
 
             <template v-if="job.normalizedData?.welfareList?.length">

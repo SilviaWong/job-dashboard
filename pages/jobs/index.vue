@@ -104,14 +104,14 @@
                 </el-button>
               </template>
 
-              <el-button v-if="!batchAnalyzing" type="success" size="small" @click="handleBatchAiDiagnosis" :disabled="loading">
+              <el-button v-if="!batchAnalyzing" type="success" size="small" @click="handleBatchAiDiagnosis" :disabled="loading && !batchOpening && !batchAnalyzing">
                 <el-icon><Bot /></el-icon>&nbsp;批量 AI 诊断
               </el-button>
               <el-button v-else type="danger" size="small" @click="cancelBatchAiDiagnosis">
                 <el-icon><Loader2 class="is-loading" /></el-icon>&nbsp;取消诊断
               </el-button>
               
-              <el-button v-if="!batchOpening" type="warning" size="small" @click="handleBatchOpenUrls" :disabled="loading || batchAnalyzing">
+              <el-button v-if="!batchOpening" type="warning" size="small" @click="handleBatchOpenUrls" :disabled="loading && !batchOpening && !batchAnalyzing">
                 <el-icon><ExternalLink /></el-icon>&nbsp;批量打开网页
               </el-button>
               <el-button v-else type="danger" size="small" @click="cancelBatchOpenUrls">
@@ -477,7 +477,9 @@ const fetchJobs = async (isLoadMore = false) => {
     const res = await $fetch(`/api/jobs?${params.toString()}`)
     if (res && res.success && Array.isArray(res.data)) {
       if (isLoadMore) {
-        jobList.value = [...jobList.value, ...res.data]
+        const existingIds = new Set(jobList.value.map(j => j.id || j.jobId))
+        const newItems = res.data.filter(j => !existingIds.has(j.id || j.jobId))
+        jobList.value = [...jobList.value, ...newItems]
       } else {
         jobList.value = res.data
       }
@@ -495,10 +497,31 @@ const fetchJobs = async (isLoadMore = false) => {
   }
 }
 
+// 统一的并发安全翻页调度器，允许多个批处理任务或滚动监听共享同一次翻页请求，杜绝跳页和竞态
+let nextPagePromise = null
+const loadNextPage = async () => {
+  if (!hasMore.value) return false
+  if (nextPagePromise) {
+    return await nextPagePromise
+  }
+  nextPagePromise = (async () => {
+    try {
+      page.value++
+      await fetchJobs(true)
+      return hasMore.value
+    } catch (e) {
+      console.error('加载下一页失败', e)
+      return false
+    } finally {
+      nextPagePromise = null
+    }
+  })()
+  return await nextPagePromise
+}
+
 const loadMore = () => {
   if (loading.value || !hasMore.value) return
-  page.value++
-  fetchJobs(true)
+  loadNextPage()
 }
 
 const viewDetails = (row) => {
@@ -624,8 +647,10 @@ const handleBatchAiDiagnosis = async () => {
         // 当前页全部完成，请求下一页
         if (hasMore.value) {
           try {
-            page.value++
-            await fetchJobs(true)
+            const hasMoreData = await loadNextPage()
+            if (!hasMoreData && !hasMore.value) {
+              break
+            }
             await new Promise(resolve => setTimeout(resolve, 500))
           } catch (e) {
             console.error('加载下一页失败', e)
@@ -655,7 +680,7 @@ const cancelBatchAiDiagnosis = () => {
 }
 
 const handleBatchOpenUrls = async () => {
-  if (batchOpening.value || batchAnalyzing.value) return
+  if (batchOpening.value) return
   
   if (jobList.value.length === 0 && !hasMore.value) {
     ElMessage.info('没有职位可打开！')
@@ -699,39 +724,37 @@ const handleBatchOpenUrls = async () => {
         const separator = originalUrl.includes('?') ? '&' : '?'
         const autoCloseUrl = originalUrl + separator + 'auto_close=1'
         
-      // 发送消息给浏览器扩展，由扩展真正在后台静默打开新标签页
-      window.postMessage({ 
-        action: 'OPEN_BACKGROUND_TAB', 
-        url: autoCloseUrl 
-      }, '*')
-    }
-    
-    if (openCount % 20 === 0) {
-      const pauseSeconds = Math.floor(Math.random() * (5 * 60 - 3 * 60 + 1)) + 3 * 60;
-      ElMessage.warning(`已连续打开 20 个网页，防反爬暂停 ${Math.floor(pauseSeconds / 60)}分${pauseSeconds % 60}秒...`);
-      
-      for (let i = 0; i < pauseSeconds; i++) {
-        if (batchOpenCancelled.value) break;
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // 发送消息给浏览器扩展，由扩展真正在后台静默打开新标签页
+        window.postMessage({ 
+          action: 'OPEN_BACKGROUND_TAB', 
+          url: autoCloseUrl 
+        }, '*')
       }
       
-      if (!batchOpenCancelled.value) {
-        ElMessage.success(`暂停结束，继续打开...`);
+      if (openCount % 20 === 0) {
+        const pauseSeconds = Math.floor(Math.random() * (5 * 60 - 3 * 60 + 1)) + 3 * 60;
+        ElMessage.warning(`已连续打开 20 个网页，防反爬暂停 ${Math.floor(pauseSeconds / 60)}分${pauseSeconds % 60}秒...`);
+        
+        for (let i = 0; i < pauseSeconds; i++) {
+          if (batchOpenCancelled.value) break;
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
+        if (!batchOpenCancelled.value) {
+          ElMessage.success(`暂停结束，继续打开...`);
+        }
+      } else {
+        // 等待 2 秒后再打开下一个
+        await new Promise(resolve => setTimeout(resolve, 2000))
       }
-    } else {
-      // 等待 2 秒后再打开下一个
-      await new Promise(resolve => setTimeout(resolve, 2000))
-    }
     } else {
       if (hasMore.value) {
         try {
-          // 自动加载数据：滚动到底部的触发器，依赖 IntersectionObserver 自动加载
-          if (loadMoreTrigger.value) {
-            loadMoreTrigger.value.scrollIntoView({ behavior: 'smooth', block: 'end' })
+          const hasMoreData = await loadNextPage()
+          if (!hasMoreData && !hasMore.value) {
+            break
           }
-          page.value++
-          await fetchJobs(true)
-          await new Promise(resolve => setTimeout(resolve, 1000))
+          await new Promise(resolve => setTimeout(resolve, 500))
         } catch (e) {
           console.error('加载下一页失败', e)
           break
@@ -1139,6 +1162,8 @@ onUnmounted(() => {
   if (observer) {
     observer.disconnect()
   }
+  batchCancelled.value = true
+  batchOpenCancelled.value = true
 })
 </script>
 
