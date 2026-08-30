@@ -1,6 +1,7 @@
 import { getPrisma } from '#prisma'
 import { computeDescHash } from '../utils/descHash'
 import { resolveJobHrActive } from '../utils/hrAnalytics'
+import { extractStructuredAndPayload, syncJobDetailPayload } from '../utils/jobDualWriter'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -375,7 +376,9 @@ export default defineEventHandler(async (event) => {
           }
         }
 
-        await prisma.job.upsert({
+        const { structured, payload } = extractStructuredAndPayload(parsedRaw || job, job.platform, job.rawData)
+
+        const savedJob = await prisma.job.upsert({
           where: { 
             jobId_platform: {
               jobId: job.jobId,
@@ -394,10 +397,16 @@ export default defineEventHandler(async (event) => {
             descHash: descHash,
             hrActiveStatus: job.hrActiveStatus,
             hrActiveLevel: job.hrActiveLevel,
-            isHeadhunter: isHeadhunter
+            isHeadhunter: isHeadhunter,
+            ...structured
           },
-          create: job
+          create: {
+            ...job,
+            ...structured
+          }
         })
+
+        await syncJobDetailPayload(prisma, savedJob.id, payload)
         syncResults.jobUpdates++
       } catch (err) {
         console.error('Failed to upsert job:', job.jobId, err)

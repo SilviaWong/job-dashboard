@@ -1,6 +1,7 @@
 import { getPrisma } from '#prisma'
 import { JobStatus } from '../../../utils/enums'
 import { cleanCompanyName } from '../companyProcessors/types'
+import { cleanHtmlText } from '../jobNormalizer'
 
 /**
  * 处理并持久化从【Boss直聘】平台同步过来的职位详情数据
@@ -119,6 +120,33 @@ export async function processBossJobDetail(detail: any, rawPlatform: string, pri
         updatedAt: updatedAt
       }
     })
+  }
+
+  // 4.3 若抓取到有效职位描述，同步清洗并写入 JobDetailPayload 冷数据表
+  if (detail['职位描述']) {
+    try {
+      const targetJob = await prisma.job.findFirst({
+        where: { jobId: String(jobId), platform: 'Boss直聘' },
+        select: { id: true }
+      })
+      if (targetJob) {
+        const cleanDesc = cleanHtmlText(detail['职位描述'])
+        await prisma.jobDetailPayload.upsert({
+          where: { jobRecordId: targetJob.id },
+          update: {
+            jobDesc: cleanDesc,
+            rawData2: stringifiedData
+          },
+          create: {
+            jobRecordId: targetJob.id,
+            jobDesc: cleanDesc,
+            rawData2: stringifiedData
+          }
+        })
+      }
+    } catch (e) {
+      console.error('[Boss Job Detail Processor] 同步更新 JobDetailPayload 异常:', e)
+    }
   }
 
   // =========================================================================

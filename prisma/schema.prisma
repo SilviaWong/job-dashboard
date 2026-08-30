@@ -215,15 +215,6 @@ model ZhilianEnrichmentCache {
   updatedAt DateTime @updatedAt
 }
 
-model BossSingleDetail {
-  jobId     String   @id
-  rawData   String   // JSON string
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("boss_single_details")
-}
-
 model JobDetail {
   id        String   @id @default(uuid())
   jobId     String
