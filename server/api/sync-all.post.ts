@@ -2,6 +2,7 @@ import { getPrisma } from '#prisma'
 import { computeDescHash } from '../utils/descHash'
 import { resolveJobHrActive } from '../utils/hrAnalytics'
 import { extractStructuredAndPayload, syncJobDetailPayload } from '../utils/jobDualWriter'
+import { extractCompanyMetadata } from '../utils/companyProcessors/types'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -178,6 +179,7 @@ export default defineEventHandler(async (event) => {
   for (const item of allCompanies) {
     const { cName, companyId, platform, rawData } = item;
     if (cName && typeof cName === 'string' && cName.trim() !== '') {
+      const meta = extractCompanyMetadata(rawData);
       try {
         await prisma.company.upsert({
           where: {
@@ -187,12 +189,29 @@ export default defineEventHandler(async (event) => {
               companyId: companyId ? String(companyId) : null
             }
           },
-          update: { rawData: JSON.stringify(rawData), companyId: companyId ? String(companyId) : null },
+          update: {
+            rawData: JSON.stringify(rawData),
+            companyId: companyId ? String(companyId) : null,
+            industry: meta.industry,
+            scale: meta.scale,
+            stage: meta.stage,
+            companyType: meta.companyType,
+            creditCode: meta.creditCode,
+            logo: meta.logo,
+            welfareList: meta.welfareList
+          },
           create: {
             companyName: cName.trim(),
             sourcePlatform: platform,
             companyId: companyId ? String(companyId) : null,
-            rawData: JSON.stringify(rawData)
+            rawData: JSON.stringify(rawData),
+            industry: meta.industry,
+            scale: meta.scale,
+            stage: meta.stage,
+            companyType: meta.companyType,
+            creditCode: meta.creditCode,
+            logo: meta.logo,
+            welfareList: meta.welfareList
           }
         })
         syncResults.companies++

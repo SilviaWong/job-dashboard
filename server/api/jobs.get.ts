@@ -269,7 +269,7 @@ export default defineEventHandler(async (event) => {
       const companyInfo = companyMap[`${job.platform}_${job.companyName}`];
       let companyWithoutRawData = null;
       if (companyInfo) {
-        const { rawData: companyRaw, ...restCompany } = companyInfo;
+        const { rawData: companyRaw, rawData2: companyRaw2, ...restCompany } = companyInfo;
         companyWithoutRawData = restCompany;
       }
 
@@ -277,8 +277,8 @@ export default defineEventHandler(async (event) => {
       if (job.city || job.skills || job.detailPayload?.jobDesc) {
         normalizedData = {
           jobUrl: job.detailPayload?.jobUrl || '',
-          publishDate: '',
-          updateDate: '',
+          publishDate: job.platformPublishTime || '',
+          updateDate: job.platformUpdateTime || '',
           spiderDate: '',
           companyIndustry: companyInfo?.industry || '',
           companyStage: companyInfo?.stage || '',

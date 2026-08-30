@@ -36,9 +36,11 @@ model Job {
   updatedAt    DateTime @updatedAt
   
   // 职位生命周期与变动追踪
-  firstSeen    DateTime @default(now())
-  lastSeen     DateTime @default(now())
-  descHash     String?
+  firstSeen           DateTime @default(now())
+  lastSeen            DateTime @default(now())
+  descHash            String?
+  platformPublishTime String?  // 源站官方职位首次发布时间（如：2026-08-20、08月20日）
+  platformUpdateTime  String?  // 源站官方职位最后刷新/更新时间（如：刚刚刷新、2026-08-25）
   
   // HR 活跃度分析与僵尸岗识别
   hrActiveStatus String?  // 原始活跃描述，如：3分钟前在线、3日内活跃
@@ -144,6 +146,16 @@ model Company {
   companyFullName String?
   companyId       String?
   sourcePlatform  String
+  
+  // 结构化企业字段
+  industry        String?  // 所属行业（如：互联网、整车制造、金融、电子商务）
+  scale           String?  // 企业规模（如：100-499人、1000-9999人、10000人以上）
+  stage           String?  // 融资阶段（如：已上市、不需要融资、D轮及以上、天使轮）
+  companyType     String?  // 企业性质（如：民营企业、国企、外商独资/合资、上市公司）
+  creditCode      String?  // 统一社会信用代码（18位唯一工商识别码）
+  logo            String?  // 企业Logo图标URL或文件名
+  welfareList     String?  // 企业福利待遇标签（JSON 数组字符串）
+  
   rawData         String?  // 保存抓取到的完整工商信息JSON
   rawData2        String?  // 保存抓取到的第二来源的完整工商信息JSON
   isAgency        Boolean  @default(false)
@@ -151,6 +163,10 @@ model Company {
   updatedAt       DateTime @updatedAt
 
   @@unique([companyName, sourcePlatform, companyId])
+  @@index([industry])
+  @@index([scale])
+  @@index([stage])
+  @@index([creditCode])
 }
 
 model Interview {

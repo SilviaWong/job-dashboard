@@ -68,8 +68,8 @@
                   {{ job.hrActiveStatus || '-' }}
                 </span>
               </div>
-              <div class="stat-box"><span class="stat-label">发布日期</span><span class="stat-value">{{ job.normalizedData?.publishDate || '-' }}</span></div>
-              <div class="stat-box"><span class="stat-label">更新日期</span><span class="stat-value">{{ job.normalizedData?.updateDate || '-' }}</span></div>
+              <div class="stat-box"><span class="stat-label">发布日期</span><span class="stat-value">{{ formatDrawerDate(job.platformPublishTime || job.normalizedData?.publishDate) }}</span></div>
+              <div class="stat-box"><span class="stat-label">更新日期</span><span class="stat-value">{{ formatDrawerDate(job.platformUpdateTime || job.normalizedData?.updateDate) }}</span></div>
               <div class="stat-box"><span class="stat-label">首次收录</span><span class="stat-value">{{ formatDrawerDate(job.firstSeen) }}</span></div>
               <div class="stat-box"><span class="stat-label">最近活跃</span><span class="stat-value">{{ formatDrawerDate(job.lastSeen) }}</span></div>
             </div>

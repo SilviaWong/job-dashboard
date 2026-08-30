@@ -227,8 +227,8 @@
               <span v-if="job.firstSeen" class="meta-item" :title="'首次收录: ' + job.firstSeen">发现: {{ formatTimeAgo(job.firstSeen) }}</span>
               <span v-if="job.lastSeen && job.lastSeen !== job.firstSeen" class="meta-item" :title="'最近活跃: ' + job.lastSeen">活跃: {{ formatTimeAgo(job.lastSeen) }}</span>
               <span v-if="job.hrActiveStatus" class="meta-item" :style="{ color: job.hrActiveLevel === 'zombie' ? '#ef4444' : (job.hrActiveLevel === 'active' ? '#10b981' : '#64748b'), fontWeight: job.hrActiveLevel === 'zombie' ? '600' : 'normal' }">HR: {{ job.hrActiveStatus }}</span>
-              <span v-if="job.normalizedData?.publishDate" class="meta-item">首发: {{ job.normalizedData.publishDate }}</span>
-              <span v-if="job.normalizedData?.updateDate" class="meta-item">修改: {{ job.normalizedData.updateDate }}</span>
+              <span v-if="job.platformPublishTime || job.normalizedData?.publishDate" class="meta-item">首发: {{ formatDisplayDate(job.platformPublishTime || job.normalizedData?.publishDate) }}</span>
+              <span v-if="job.platformUpdateTime || job.normalizedData?.updateDate" class="meta-item">修改: {{ formatDisplayDate(job.platformUpdateTime || job.normalizedData?.updateDate) }}</span>
               <span class="meta-item">状态: {{ job.normalizedData?.jobStatus || job.status || '-' }}</span>
             </div>
 
@@ -438,6 +438,14 @@ const formatTimeAgo = (dateStr) => {
   if (diffDays < 30) return `${diffDays}天前`
   if (diffDays < 60) return '1个月前'
   return `${Math.floor(diffDays / 30)}个月前`
+}
+
+const formatDisplayDate = (d) => {
+  if (!d) return ''
+  const str = String(d).trim()
+  if (str.includes('T')) return str.split('T')[0]
+  if (str.length > 10 && /^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10)
+  return str
 }
 
 const fetchJobs = async (isLoadMore = false) => {

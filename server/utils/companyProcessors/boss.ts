@@ -1,4 +1,4 @@
-import { cleanCompanyName, type CompanyProcessor } from './types'
+import { cleanCompanyName, type CompanyProcessor, extractCompanyMetadata } from './types'
 
 /**
  * 处理并持久化从【Boss直聘】平台同步过来的公司数据
@@ -73,19 +73,28 @@ export const processBossCompany: CompanyProcessor = async (company, platform, pr
     // -----------------------------------------------------------------------
     // 分支 A：公司记录已存在 -> 执行 UPDATE 更新
     // -----------------------------------------------------------------------
+    const meta = extractCompanyMetadata(rawData || company)
     await prisma.company.update({
       where: { id: existingCompany.id },
       data: {
         rawData2: stringifiedData,
         companyId: validCompanyId || existingCompany.companyId,
         companyFullName: validFullName || existingCompany.companyFullName,
-        updatedAt: updatedAt
+        updatedAt: updatedAt,
+        ...(meta.industry ? { industry: meta.industry } : {}),
+        ...(meta.scale ? { scale: meta.scale } : {}),
+        ...(meta.stage ? { stage: meta.stage } : {}),
+        ...(meta.companyType ? { companyType: meta.companyType } : {}),
+        ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
+        ...(meta.logo ? { logo: meta.logo } : {}),
+        ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
       }
     })
   } else if (finalCompanyName) {
     // -----------------------------------------------------------------------
     // 分支 B：公司记录不存在 -> 执行 CREATE 新增
     // -----------------------------------------------------------------------
+    const meta = extractCompanyMetadata(rawData || company)
     try {
       await prisma.company.create({
         data: {
@@ -95,7 +104,14 @@ export const processBossCompany: CompanyProcessor = async (company, platform, pr
           companyId: validCompanyId,
           createdAt: new Date(),
           updatedAt: updatedAt,
-          rawData2: stringifiedData
+          rawData2: stringifiedData,
+          industry: meta.industry,
+          scale: meta.scale,
+          stage: meta.stage,
+          companyType: meta.companyType,
+          creditCode: meta.creditCode,
+          logo: meta.logo,
+          welfareList: meta.welfareList
         }
       })
     } catch (createErr: any) {
@@ -111,7 +127,14 @@ export const processBossCompany: CompanyProcessor = async (company, platform, pr
               rawData2: stringifiedData,
               companyId: validCompanyId || newlyCreated.companyId,
               companyFullName: validFullName || newlyCreated.companyFullName,
-              updatedAt: updatedAt
+              updatedAt: updatedAt,
+              ...(meta.industry ? { industry: meta.industry } : {}),
+              ...(meta.scale ? { scale: meta.scale } : {}),
+              ...(meta.stage ? { stage: meta.stage } : {}),
+              ...(meta.companyType ? { companyType: meta.companyType } : {}),
+              ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
+              ...(meta.logo ? { logo: meta.logo } : {}),
+              ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
             }
           })
         }

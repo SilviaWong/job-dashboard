@@ -1,4 +1,4 @@
-import { cleanCompanyName, type CompanyProcessor } from './types'
+import { cleanCompanyName, type CompanyProcessor, extractCompanyMetadata } from './types'
 
 /**
  * 处理并持久化从【猎聘】平台同步过来的公司数据
@@ -96,6 +96,7 @@ export const processLiepinCompany: CompanyProcessor = async (company, platform, 
       // 来源是 liepin_companies_db_v1，且已有 rawData2，跳过不更新
       // console.log(`[Liepin Company Processor] 来源为 ${dataSource || 'liepin_companies_db_v1'}，企业 [${existingCompany.companyName}] 已存在且 rawData2 不为空，跳过更新`)
     } else {
+      const meta = extractCompanyMetadata(rawData || company)
       await prisma.company.update({
         where: { id: existingCompany.id },
         data: {
@@ -103,7 +104,14 @@ export const processLiepinCompany: CompanyProcessor = async (company, platform, 
           companyId: companyId || existingCompany.companyId,
           companyFullName: cFullName || existingCompany.companyFullName,
           companyName: cName || existingCompany.companyName,
-          updatedAt: updatedAt
+          updatedAt: updatedAt,
+          ...(meta.industry ? { industry: meta.industry } : {}),
+          ...(meta.scale ? { scale: meta.scale } : {}),
+          ...(meta.stage ? { stage: meta.stage } : {}),
+          ...(meta.companyType ? { companyType: meta.companyType } : {}),
+          ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
+          ...(meta.logo ? { logo: meta.logo } : {}),
+          ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
         }
       })
     }
@@ -111,6 +119,7 @@ export const processLiepinCompany: CompanyProcessor = async (company, platform, 
     // -----------------------------------------------------------------------
     // 分支 B：公司记录不存在 -> 执行 CREATE 新增
     // -----------------------------------------------------------------------
+    const meta = extractCompanyMetadata(rawData || company)
     try {
       await prisma.company.create({
         data: {
@@ -120,7 +129,14 @@ export const processLiepinCompany: CompanyProcessor = async (company, platform, 
           companyId: companyId,
           createdAt: createdAt,
           updatedAt: updatedAt,
-          rawData2: stringifiedData
+          rawData2: stringifiedData,
+          industry: meta.industry,
+          scale: meta.scale,
+          stage: meta.stage,
+          companyType: meta.companyType,
+          creditCode: meta.creditCode,
+          logo: meta.logo,
+          welfareList: meta.welfareList
         }
       })
     } catch (createErr: any) {
@@ -146,7 +162,14 @@ export const processLiepinCompany: CompanyProcessor = async (company, platform, 
                 companyId: companyId || newlyCreated.companyId,
                 companyFullName: cFullName || newlyCreated.companyFullName,
                 companyName: cName || newlyCreated.companyName,
-                updatedAt: updatedAt
+                updatedAt: updatedAt,
+                ...(meta.industry ? { industry: meta.industry } : {}),
+                ...(meta.scale ? { scale: meta.scale } : {}),
+                ...(meta.stage ? { stage: meta.stage } : {}),
+                ...(meta.companyType ? { companyType: meta.companyType } : {}),
+                ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
+                ...(meta.logo ? { logo: meta.logo } : {}),
+                ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
               }
             })
           }

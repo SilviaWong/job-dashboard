@@ -50,6 +50,8 @@ export default defineEventHandler(async (event) => {
         hrName: true,
         hrPosition: true,
         isHeadhunter: true,
+        platformPublishTime: true,
+        platformUpdateTime: true,
         status: true
       }
     })
@@ -125,6 +127,13 @@ export default defineEventHandler(async (event) => {
           sourcePlatform: c.sourcePlatform,
           companyId: c.companyId,
           isAgency: c.isAgency,
+          industry: c.industry,
+          scale: c.scale,
+          stage: c.stage,
+          companyType: c.companyType,
+          creditCode: c.creditCode,
+          logo: c.logo,
+          welfareList: c.welfareList ? (() => { try { return JSON.parse(c.welfareList) } catch { return [] } })() : [],
           rawData: c.rawData ? JSON.parse(c.rawData) : null,
           rawData2: c.rawData2 ? JSON.parse(c.rawData2) : null,
         })
@@ -132,6 +141,15 @@ export default defineEventHandler(async (event) => {
         const existing = companyMap.get(canonicalName);
         if (c.isAgency) {
           existing.isAgency = true;
+        }
+        if (!existing.industry && c.industry) existing.industry = c.industry;
+        if (!existing.scale && c.scale) existing.scale = c.scale;
+        if (!existing.stage && c.stage) existing.stage = c.stage;
+        if (!existing.companyType && c.companyType) existing.companyType = c.companyType;
+        if (!existing.creditCode && c.creditCode) existing.creditCode = c.creditCode;
+        if (!existing.logo && c.logo) existing.logo = c.logo;
+        if ((!existing.welfareList || existing.welfareList.length === 0) && c.welfareList) {
+          try { existing.welfareList = JSON.parse(c.welfareList) } catch { }
         }
         if (!existing.rawData && c.rawData) {
           existing.rawData = JSON.parse(c.rawData);
@@ -192,12 +210,12 @@ export default defineEventHandler(async (event) => {
 
       const normalizedData = {
         jobUrl: '',
-        publishDate: '',
-        updateDate: '',
+        publishDate: job.platformPublishTime || '',
+        updateDate: job.platformUpdateTime || '',
         spiderDate: '',
-        companyIndustry: node.rawData?.companyIndustry || '',
-        companyStage: node.rawData?.companyStage || '',
-        companyScale: node.rawData?.companyScale || '',
+        companyIndustry: node.industry || node.rawData?.companyIndustry || '',
+        companyStage: node.stage || node.rawData?.companyStage || '',
+        companyScale: node.scale || node.rawData?.companyScale || '',
         brandName: node.companyName,
         companyFullName: job.companyFullName || job.companyName,
         companyId: job.companyId || '',

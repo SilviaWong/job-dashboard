@@ -97,14 +97,20 @@
                     @change="toggleAgency(company)"
                     @click.stop
                   />
-                  <el-tag size="small" type="info" v-if="company.rawData?.industry">
-                    {{ company.rawData.industry }}
+                  <el-tag size="small" type="info" v-if="company.industry || company.rawData?.industry">
+                    {{ company.industry || company.rawData?.industry }}
                   </el-tag>
-                  <el-tag size="small" type="success" v-if="company.rawData?.scale">
-                    {{ company.rawData.scale }}
+                  <el-tag size="small" type="success" v-if="company.scale || company.rawData?.scale">
+                    {{ company.scale || company.rawData?.scale }}
                   </el-tag>
-                  <el-tag size="small" type="warning" v-if="company.rawData?.stage">
-                    {{ company.rawData.stage }}
+                  <el-tag size="small" type="warning" v-if="company.stage || company.rawData?.stage">
+                    {{ company.stage || company.rawData?.stage }}
+                  </el-tag>
+                  <el-tag size="small" type="primary" effect="plain" v-if="company.companyType">
+                    {{ company.companyType }}
+                  </el-tag>
+                  <el-tag size="small" type="info" effect="plain" v-if="company.creditCode" :title="'统一社会信用代码: ' + company.creditCode" style="font-family: monospace;">
+                    代码: {{ company.creditCode }}
                   </el-tag>
                   <el-tag size="small" type="success" effect="dark" style="margin-left: 10px;">
                     共 {{ company.jobs?.length || 0 }} 个职位
@@ -168,16 +174,19 @@
                 </el-button>
               </div>
 
-              <div class="company-info-section" v-if="company.rawData?.companyDesc || company.rawData?.welfare?.length">
+              <div class="company-info-section" v-if="company.creditCode || company.rawData?.companyDesc || (company.welfareList && company.welfareList.length) || company.rawData?.welfare?.length">
+                <div v-if="company.creditCode" style="margin-bottom: 10px; font-size: 13px; color: #475569;">
+                  <span>📋 <strong>统一社会信用代码：</strong><span style="font-family: monospace; font-weight: 600; color: #0f172a;">{{ company.creditCode }}</span></span>
+                </div>
                 <div v-if="company.rawData?.companyDesc">
                   <h4 style="margin-top: 5px;">公司介绍</h4>
                   <p class="company-desc">{{ company.rawData.companyDesc }}</p>
                 </div>
                 
-                <div v-if="company.rawData?.welfare?.length" class="company-welfare">
+                <div v-if="(company.welfareList && company.welfareList.length) || company.rawData?.welfare?.length" class="company-welfare">
                   <h4>公司福利</h4>
                   <el-tag 
-                    v-for="(w, idx) in company.rawData.welfare" 
+                    v-for="(w, idx) in (company.welfareList?.length ? company.welfareList : company.rawData?.welfare)" 
                     :key="idx" 
                     size="small" 
                     type="success"
