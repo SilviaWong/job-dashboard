@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
     const expDist: Record<string, number> = {}
     const skillsDist: Record<string, number> = {}
     const platformDist: Record<string, number> = {}
-    const hrActiveDist = { active: 0, moderate: 0, zombie: 0, unknown: 0 }
+    const hrActiveDist = { active: 0, moderate: 0, zombie: 0, stale: 0, unknown: 0 }
 
     const now = Date.now()
     const ms7d = 7 * 24 * 60 * 60 * 1000
@@ -53,10 +53,27 @@ export default defineEventHandler(async (event) => {
       const plat = job.platform || '未知'
       platformDist[plat] = (platformDist[plat] || 0) + 1
 
-      // HR活跃度统计
+      // HR活跃度统计（结合抓取时间衰减）
       const hrLevel = (job.hrActiveLevel as 'active' | 'moderate' | 'zombie' | 'unknown') || 'unknown'
-      if (hrActiveDist[hrLevel] !== undefined) {
-        hrActiveDist[hrLevel]++
+      const syncTime = job.lastSeen ? new Date(job.lastSeen).getTime() : (job.firstSeen ? new Date(job.firstSeen).getTime() : (job.createdAt ? new Date(job.createdAt).getTime() : now))
+      const syncDiff = now - syncTime
+
+      if (hrLevel === 'zombie') {
+        hrActiveDist.zombie++
+      } else if (hrLevel === 'active') {
+        if (syncDiff <= ms7d) {
+          hrActiveDist.active++
+        } else if (syncDiff <= ms30d) {
+          hrActiveDist.moderate++
+        } else {
+          hrActiveDist.stale++
+        }
+      } else if (hrLevel === 'moderate') {
+        if (syncDiff <= ms30d) {
+          hrActiveDist.moderate++
+        } else {
+          hrActiveDist.stale++
+        }
       } else {
         hrActiveDist.unknown++
       }

@@ -281,9 +281,10 @@ const hrActiveChartOption = computed(() => {
   if (!statsData.value?.hrActive) return {}
   const d = statsData.value.hrActive
   const pieData = [
-    { name: '🟢 高频活跃 (7天内)', value: d.active, itemStyle: { color: '#10b981' } },
-    { name: '🟡 一般活跃 (月内)', value: d.moderate, itemStyle: { color: '#f59e0b' } },
-    { name: '💤 僵尸岗位 (>30天/年)', value: d.zombie, itemStyle: { color: '#ef4444' } },
+    { name: '🟢 真实活跃 (7天内)', value: d.active, itemStyle: { color: '#10b981' } },
+    { name: '🟡 一般活跃 (30天内)', value: d.moderate, itemStyle: { color: '#f59e0b' } },
+    { name: '💤 僵尸岗位 (长期未活)', value: d.zombie, itemStyle: { color: '#ef4444' } },
+    { name: '⏳ 状态失效 (>30天未更)', value: d.stale || 0, itemStyle: { color: '#cbd5e1' } },
     { name: '⚪ 未知/未提供', value: d.unknown, itemStyle: { color: '#94a3b8' } }
   ].filter(item => item.value > 0)
 

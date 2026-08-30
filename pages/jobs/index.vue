@@ -51,11 +51,12 @@
                 <el-option label="🔥 活跃 (30天内)" value="new_30d"></el-option>
                 <el-option label="⚠️ 常驻 (>60天)" value="stale_60d"></el-option>
               </el-select>
-              <el-select v-model="hrActiveFilter" placeholder="HR活跃度" style="width: 155px" @change="() => fetchJobs(false)">
+              <el-select v-model="hrActiveFilter" placeholder="HR活跃度" style="width: 175px" @change="() => fetchJobs(false)">
                 <el-option label="全部HR状态" value="all"></el-option>
-                <el-option label="🟢 活跃HR (7天内)" value="active"></el-option>
-                <el-option label="🟡 一般活跃 (月内)" value="moderate"></el-option>
-                <el-option label="💤 僵尸岗位 (>30天/年)" value="zombie"></el-option>
+                <el-option label="🟢 真实活跃 (7天内同步)" value="active"></el-option>
+                <el-option label="🟡 一般活跃 (30天内)" value="moderate"></el-option>
+                <el-option label="💤 僵尸岗位 (长期未活)" value="zombie"></el-option>
+                <el-option label="⏳ 状态已失效 (>7天未更)" value="stale"></el-option>
               </el-select>
               <el-select v-model="headhunterFilter" placeholder="招聘来源" style="width: 145px" @change="() => fetchJobs(false)">
                 <el-option label="全部来源" value="all"></el-option>
@@ -177,26 +178,37 @@
                 ⚠️ 常驻职位 (&gt;60天)
               </span>
 
-              <!-- HR 活跃度标记 (活跃 / 适中 / 僵尸岗) -->
-              <span 
-                v-if="job.hrActiveLevel === 'zombie'" 
-                class="tag-item tag-hr-zombie"
-                :title="'该岗位HR长期未活跃: ' + (job.hrActiveStatus || '数月/年前活跃')"
-              >
-                💤 僵尸岗位 ({{ job.hrActiveStatus || '长期未活跃' }})
-              </span>
-              <span 
-                v-else-if="job.hrActiveLevel === 'active' && job.hrActiveStatus" 
-                class="tag-item tag-hr-active"
-              >
-                ⚡ HR: {{ job.hrActiveStatus }}
-              </span>
-              <span 
-                v-else-if="job.hrActiveLevel === 'moderate' && job.hrActiveStatus" 
-                class="tag-item tag-hr-moderate"
-              >
-                HR: {{ job.hrActiveStatus }}
-              </span>
+              <!-- HR 活跃度标记 (结合抓取时间的时效衰减) -->
+              <template v-if="job.hrActiveStatus">
+                <span 
+                  v-if="getJobHr(job).level === 'zombie'" 
+                  class="tag-item tag-hr-zombie"
+                  :title="getJobHr(job).tooltip"
+                >
+                  {{ getJobHr(job).badgeText }}
+                </span>
+                <span 
+                  v-else-if="getJobHr(job).level === 'active'" 
+                  class="tag-item tag-hr-active"
+                  :title="getJobHr(job).tooltip"
+                >
+                  {{ getJobHr(job).badgeText }}
+                </span>
+                <span 
+                  v-else-if="getJobHr(job).level === 'moderate'" 
+                  class="tag-item tag-hr-moderate"
+                  :title="getJobHr(job).tooltip"
+                >
+                  {{ getJobHr(job).badgeText }}
+                </span>
+                <span 
+                  v-else-if="getJobHr(job).level === 'stale'" 
+                  class="tag-item tag-hr-stale"
+                  :title="getJobHr(job).tooltip"
+                >
+                  {{ getJobHr(job).badgeText }}
+                </span>
+              </template>
 
               <template v-if="job.isHidden && job.tags && Array.isArray(job.tags) && job.tags.length > 0">
                 <el-tag v-for="(t, idx) in job.tags" :key="'reason-'+idx" type="info" size="small" effect="dark" style="border: none;">
@@ -226,7 +238,15 @@
             <div class="job-meta">
               <span v-if="job.firstSeen" class="meta-item" :title="'首次收录: ' + job.firstSeen">发现: {{ formatTimeAgo(job.firstSeen) }}</span>
               <span v-if="job.lastSeen && job.lastSeen !== job.firstSeen" class="meta-item" :title="'最近活跃: ' + job.lastSeen">活跃: {{ formatTimeAgo(job.lastSeen) }}</span>
-              <span v-if="job.hrActiveStatus" class="meta-item" :style="{ color: job.hrActiveLevel === 'zombie' ? '#ef4444' : (job.hrActiveLevel === 'active' ? '#10b981' : '#64748b'), fontWeight: job.hrActiveLevel === 'zombie' ? '600' : 'normal' }">HR: {{ job.hrActiveStatus }}</span>
+              <span 
+                v-if="job.hrActiveStatus" 
+                class="meta-item" 
+                :title="getJobHr(job).tooltip"
+                :style="{ 
+                  color: getJobHr(job).level === 'zombie' ? '#ef4444' : (getJobHr(job).level === 'active' ? '#10b981' : (getJobHr(job).level === 'stale' ? '#94a3b8' : '#64748b')), 
+                  fontWeight: getJobHr(job).level === 'zombie' ? '600' : 'normal' 
+                }"
+              >HR: {{ getJobHr(job).displayStatus }}</span>
               <span v-if="job.platformPublishTime || job.normalizedData?.publishDate" class="meta-item">首发: {{ formatDisplayDate(job.platformPublishTime || job.normalizedData?.publishDate) }}</span>
               <span v-if="job.platformUpdateTime || job.normalizedData?.updateDate" class="meta-item">修改: {{ formatDisplayDate(job.platformUpdateTime || job.normalizedData?.updateDate) }}</span>
               <span class="meta-item">状态: {{ job.normalizedData?.jobStatus || job.status || '-' }}</span>
@@ -426,6 +446,10 @@ const isStaleJob = (job) => {
   const t = job.firstSeen ? new Date(job.firstSeen).getTime() : (job.createdAt ? new Date(job.createdAt).getTime() : null)
   if (!t) return false
   return (Date.now() - t) >= 60 * 24 * 60 * 60 * 1000
+}
+
+const getJobHr = (job) => {
+  return getEffectiveHrActive(job)
 }
 
 const formatTimeAgo = (dateStr) => {
@@ -1387,6 +1411,13 @@ onUnmounted(() => {
   background-color: #f4f4f5;
   color: #909399;
   border-color: #d3d4d6;
+}
+
+.tag-item.tag-hr-stale {
+  background-color: #f8fafc;
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  opacity: 0.85;
 }
 
 .job-meta {

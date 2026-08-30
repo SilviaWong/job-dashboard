@@ -89,9 +89,30 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    // HR 活跃度过滤 (活跃 active / 适中 moderate / 僵尸岗 zombie)
+    // HR 活跃度过滤 (结合 lastSeen 时效衰减判断真实活跃与失效状态)
     if (hrActiveFilter !== 'all') {
-      whereClause.hrActiveLevel = hrActiveFilter
+      const now = new Date()
+      const date7dAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+      const date30dAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+      if (hrActiveFilter === 'active') {
+        // 真实活跃：抓取时标记为 active 且 7天内有同步过
+        whereClause.hrActiveLevel = 'active'
+        andConditions.push({ lastSeen: { gte: date7dAgo } })
+      } else if (hrActiveFilter === 'moderate') {
+        // 一般活跃：30天内同步且处于 moderate 范围
+        whereClause.hrActiveLevel = 'moderate'
+        andConditions.push({ lastSeen: { gte: date30dAgo } })
+      } else if (hrActiveFilter === 'zombie') {
+        // 僵尸岗位：负向指标具有持久单调性，长期未活跃避坑
+        whereClause.hrActiveLevel = 'zombie'
+      } else if (hrActiveFilter === 'stale') {
+        // 状态失效：抓取时曾为 active 或 moderate，但超过 7 天未同步更新
+        whereClause.hrActiveLevel = { in: ['active', 'moderate'] }
+        andConditions.push({ lastSeen: { lt: date7dAgo } })
+      } else {
+        whereClause.hrActiveLevel = hrActiveFilter
+      }
     }
 
     // 薪资范围过滤 (直接走数据库原生数值索引，无需全表扫入内存跑正则)
