@@ -43,18 +43,86 @@ model Job {
   // HR 活跃度分析与僵尸岗识别
   hrActiveStatus String?  // 原始活跃描述，如：3分钟前在线、3日内活跃
   hrActiveLevel  String?  // active (活跃), moderate (适中), zombie (僵尸岗), unknown (未知)
+  hrName         String?  // 招聘人姓名
+  hrPosition     String?  // 招聘人职位
   
   // 猎头/代招标记
   isHeadhunter   Boolean? @default(false)
-  
+
+  // 阶段一新增：结构化薪资 (千元/月数值，用于毫秒级范围查询与排序)
+  salaryMin      Float?
+  salaryMax      Float?
+  salaryAvg      Float?
+  salaryMonths   Int?     @default(12)
+
+  // 阶段一新增：结构化地理位置
+  province       String?
+  city           String?
+  area           String?
+  businessDistrict String?
+  address        String?
+
+  // 阶段一新增：结构化经验要求
+  experience     String?
+  expMinYears    Int?     @default(0)
+  expMaxYears    Int?
+
+  // 阶段一新增：结构化标签 (JSON 字符串形式保存数组)
+  skills         String?  // JSON string: string[]
+  welfareList    String?  // JSON string: string[]
+
+  // 阶段一新增：解耦的求职跟进状态 (看板状态)
+  applyStatus    String?  @default("none") // none, to-apply, applied, interview-1, interview-2, offer, rejected
+  appliedAt      DateTime?
+  statusUpdatedAt DateTime?
+
   // 关联的面试记录 (强绑定，随职位删除而删除)
-  interviews   Interview[]
+  interviews     Interview[]
+
+  // 阶段一新增：关联冷数据大字段与状态流转历史
+  detailPayload  JobDetailPayload?
+  statusLogs     JobStatusLog[]
 
   @@unique([jobId, platform])
   @@index([firstSeen])
   @@index([lastSeen])
   @@index([hrActiveLevel])
   @@index([isHeadhunter])
+  @@index([status, isHidden, isFavorited])
+  @@index([applyStatus])
+  @@index([city])
+  @@index([salaryAvg])
+  @@index([updatedAt])
+}
+
+// 阶段一新增：职位冷数据附表 (存储大文本与原始抓取快照，保持 Job 主表轻量)
+model JobDetailPayload {
+  id          String   @id @default(uuid())
+  jobRecordId String   @unique
+  job         Job      @relation(fields: [jobRecordId], references: [id], onDelete: Cascade)
+  jobDesc     String?
+  jobUrl      String?
+  rawData     String?
+  rawData2    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("job_detail_payloads")
+}
+
+// 阶段一新增：投递进度流转日志表 (记录看板拖拽与状态流转历史)
+model JobStatusLog {
+  id          String   @id @default(uuid())
+  jobRecordId String
+  job         Job      @relation(fields: [jobRecordId], references: [id], onDelete: Cascade)
+  fromStatus  String
+  toStatus    String
+  note        String?
+  createdAt   DateTime @default(now())
+
+  @@index([jobRecordId])
+  @@index([toStatus, createdAt])
+  @@map("job_status_logs")
 }
 
 // 独立的 AI 结果表（脱离职位独立存在，不设强外键）

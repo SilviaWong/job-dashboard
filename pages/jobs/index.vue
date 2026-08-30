@@ -57,6 +57,11 @@
                 <el-option label="🟡 一般活跃 (月内)" value="moderate"></el-option>
                 <el-option label="💤 僵尸岗位 (>30天/年)" value="zombie"></el-option>
               </el-select>
+              <el-select v-model="headhunterFilter" placeholder="招聘来源" style="width: 145px" @change="() => fetchJobs(false)">
+                <el-option label="全部来源" value="all"></el-option>
+                <el-option label="🏢 仅看直招" value="direct"></el-option>
+                <el-option label="🤝 仅看猎头/外包" value="headhunter"></el-option>
+              </el-select>
               <el-radio-group v-model="statusFilter" size="small" @change="() => fetchJobs(false)">
                 <el-radio-button value="all">全部</el-radio-button>
                 <el-radio-button :value="JobStatus.NORMAL">常规</el-radio-button>
@@ -84,9 +89,6 @@
               </el-checkbox>
               <el-checkbox v-if="platformFilter === 'Boss直聘'" v-model="filterMissingBossDetail" @change="() => fetchJobs(false)">
                 未抓取详情
-              </el-checkbox>
-              <el-checkbox v-model="filterExcludeHeadhunter" @change="() => fetchJobs(false)">
-                <el-icon><UserCheck /></el-icon> 过滤猎头/代招
               </el-checkbox>
             </div>
             
@@ -168,41 +170,33 @@
               <el-tag v-if="job.status === JobStatus.EXPIRED" type="danger" size="small" effect="dark" style="border: none;">已失效</el-tag>
               
               <!-- 职位生命周期标记 (新发 / 常驻) -->
-              <el-tag v-if="isNewJob(job)" type="success" size="small" effect="plain" style="border-radius: 4px; font-weight: 600;">
+              <span v-if="isNewJob(job)" class="tag-item tag-new">
                 🟢 {{ getNewJobText(job) }}
-              </el-tag>
-              <el-tag v-else-if="isStaleJob(job)" type="warning" size="small" effect="plain" style="border-radius: 4px; font-weight: 500;">
+              </span>
+              <span v-else-if="isStaleJob(job)" class="tag-item tag-stale">
                 ⚠️ 常驻职位 (&gt;60天)
-              </el-tag>
+              </span>
 
               <!-- HR 活跃度标记 (活跃 / 适中 / 僵尸岗) -->
-              <el-tag 
+              <span 
                 v-if="job.hrActiveLevel === 'zombie'" 
-                size="small" 
-                effect="dark" 
-                style="border-radius: 4px; font-weight: 600; background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;"
+                class="tag-item tag-hr-zombie"
                 :title="'该岗位HR长期未活跃: ' + (job.hrActiveStatus || '数月/年前活跃')"
               >
                 💤 僵尸岗位 ({{ job.hrActiveStatus || '长期未活跃' }})
-              </el-tag>
-              <el-tag 
+              </span>
+              <span 
                 v-else-if="job.hrActiveLevel === 'active' && job.hrActiveStatus" 
-                type="success" 
-                size="small" 
-                effect="plain" 
-                style="border-radius: 4px; font-weight: 500;"
+                class="tag-item tag-hr-active"
               >
                 ⚡ HR: {{ job.hrActiveStatus }}
-              </el-tag>
-              <el-tag 
+              </span>
+              <span 
                 v-else-if="job.hrActiveLevel === 'moderate' && job.hrActiveStatus" 
-                type="info" 
-                size="small" 
-                effect="plain" 
-                style="border-radius: 4px;"
+                class="tag-item tag-hr-moderate"
               >
                 HR: {{ job.hrActiveStatus }}
-              </el-tag>
+              </span>
 
               <template v-if="job.isHidden && job.tags && Array.isArray(job.tags) && job.tags.length > 0">
                 <el-tag v-for="(t, idx) in job.tags" :key="'reason-'+idx" type="info" size="small" effect="dark" style="border: none;">
@@ -400,7 +394,7 @@ const filterFavoritesOnly = ref(false)
 const filterShowHidden = ref(false)
 const filterShowBlacklisted = ref(false)
 const filterMissingBossDetail = ref(false)
-const filterExcludeHeadhunter = ref(false)
+const headhunterFilter = ref('all')
 
 const platformFilter = ref('all')
 const educationFilter = ref('all')
@@ -465,7 +459,7 @@ const fetchJobs = async (isLoadMore = false) => {
       filterShowHidden: filterShowHidden.value,
       filterShowBlacklisted: filterShowBlacklisted.value,
       filterMissingBossDetail: filterMissingBossDetail.value,
-      filterExcludeHeadhunter: filterExcludeHeadhunter.value,
+      headhunterFilter: headhunterFilter.value,
       platform: platformFilter.value,
       education: educationFilter.value,
       keyword: keywordFilter.value,
@@ -1335,16 +1329,56 @@ onUnmounted(() => {
 .job-tags {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   margin-bottom: 16px;
 }
 .tag-item {
+  display: inline-flex;
+  align-items: center;
   background: #F2F2F7;
   color: #636366;
   padding: 5px 10px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
+  border: 1px solid transparent;
+  box-sizing: border-box;
+  line-height: 1.2;
+}
+
+.tag-item.tag-new {
+  background-color: #f0f9eb;
+  color: #67c23a;
+  border-color: #b3e19d;
+  font-weight: 600;
+}
+
+.tag-item.tag-stale {
+  background-color: #fdf6ec;
+  color: #e6a23c;
+  border-color: #f3d19e;
+  font-weight: 500;
+}
+
+.tag-item.tag-hr-zombie {
+  background-color: #fee2e2;
+  color: #b91c1c;
+  border-color: #fca5a5;
+  font-weight: 600;
+}
+
+.tag-item.tag-hr-active {
+  background-color: #f0f9eb;
+  color: #67c23a;
+  border-color: #b3e19d;
+  font-weight: 500;
+}
+
+.tag-item.tag-hr-moderate {
+  background-color: #f4f4f5;
+  color: #909399;
+  border-color: #d3d4d6;
 }
 
 .job-meta {

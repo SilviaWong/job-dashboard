@@ -2,6 +2,7 @@ import type { JobProcessor } from './types'
 import { cleanCompanyName } from '../companyProcessors/types'
 import { computeDescHash } from '../descHash'
 import { resolveJobHrActive } from '../hrAnalytics'
+import { extractStructuredAndPayload, syncJobDetailPayload } from '../jobDualWriter'
 
 export const processZhilianJob: JobProcessor = async (job, platform, prisma) => {
   // 智联招聘的数据抓取有两种方式，获取到的职位json格式不一样，需要分别处理
@@ -202,6 +203,7 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
   const updatedAt = new Date()
   const descHash = computeDescHash(job)
   const hr = resolveJobHrActive(job, null, platform)
+  const { structuredJobData, payloadData } = extractStructuredAndPayload(job, platform, stringifiedData)
 
   // 组装更新职位数据
   const updateData: any = {
@@ -217,7 +219,8 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
     lastSeen: updatedAt,
     descHash: descHash,
     hrActiveStatus: hr.hrActiveStatus || null,
-    hrActiveLevel: hr.hrActiveLevel
+    hrActiveLevel: hr.hrActiveLevel,
+    ...structuredJobData
   }
 
   // 组装创建职位数据
@@ -238,7 +241,8 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
     lastSeen: updatedAt,
     descHash: descHash,
     hrActiveStatus: hr.hrActiveStatus || null,
-    hrActiveLevel: hr.hrActiveLevel
+    hrActiveLevel: hr.hrActiveLevel,
+    ...structuredJobData
   }
 
   // zhilian_scraped_data_v1 的数据使用rawData2字段
@@ -290,6 +294,9 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
     update: updateData,
     create: createData
   })
+
+  // 阶段一双写：同步更新冷数据附表
+  await syncJobDetailPayload(prisma, savedJob.id, payloadData)
 
   if (isChanged) {
     ;(savedJob as any).isChanged = true

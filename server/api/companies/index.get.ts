@@ -40,8 +40,16 @@ export default defineEventHandler(async (event) => {
         descHash: true,
         hrActiveStatus: true,
         hrActiveLevel: true,
-        rawData: true,
-        rawData2: true,
+        city: true,
+        area: true,
+        businessDistrict: true,
+        address: true,
+        experience: true,
+        skills: true,
+        welfareList: true,
+        hrName: true,
+        hrPosition: true,
+        isHeadhunter: true,
         status: true
       }
     })
@@ -65,13 +73,7 @@ export default defineEventHandler(async (event) => {
     })
     const blacklistedSet = new Set(blacklisted.map(b => b.companyName))
 
-    // 1.3 查询 Boss 详情数据（使用单一 platform 条件代替几千个 IN 变量）
-    let bossSingleDetailsMap: Record<string, any> = {}
-    const bossDetails = await prisma.jobDetail.findMany({
-      where: { platform: 'Boss直聘' },
-      select: { jobId: true, rawData: true }
-    })
-    bossSingleDetailsMap = Object.fromEntries(bossDetails.map(d => [d.jobId, d]))
+    // 1.3 获取公司黑名单集合（完成基础准备）
 
     // 2. 构建并查集 (DSU) 合并公司名称和全称相同的记录
     const dsu = {
@@ -170,7 +172,7 @@ export default defineEventHandler(async (event) => {
         node.platformSources.add(job.platform)
       }
 
-      // 处理 tags（在 DB 中是 JSON string）
+      // 处理 tags 与结构化技能、福利
       let parsedTags = []
       try {
         if (job.tags) parsedTags = JSON.parse(job.tags)
@@ -178,38 +180,53 @@ export default defineEventHandler(async (event) => {
         parsedTags = []
       }
 
-      // 解析 rawData 与 rawData2
-      let parsedRawData = null
-      if (job.rawData) {
-        try {
-          parsedRawData = JSON.parse(job.rawData)
-        } catch (e) { }
-      }
-      let parsedRawData2 = null
-      if (job.rawData2) {
-        try {
-          parsedRawData2 = JSON.parse(job.rawData2)
-        } catch (e) { }
+      let parsedSkills = []
+      try {
+        if (job.skills) parsedSkills = JSON.parse(job.skills)
+      } catch (e) { }
+
+      let parsedWelfare = []
+      try {
+        if (job.welfareList) parsedWelfare = JSON.parse(job.welfareList)
+      } catch (e) { }
+
+      const normalizedData = {
+        jobUrl: '',
+        publishDate: '',
+        updateDate: '',
+        spiderDate: '',
+        companyIndustry: node.rawData?.companyIndustry || '',
+        companyStage: node.rawData?.companyStage || '',
+        companyScale: node.rawData?.companyScale || '',
+        brandName: node.companyName,
+        companyFullName: job.companyFullName || job.companyName,
+        companyId: job.companyId || '',
+        hrName: job.hrName || '',
+        hrPosition: job.hrPosition || '',
+        hrCompanyName: job.companyName,
+        welfareList: parsedWelfare,
+        skills: parsedSkills,
+        jobId: job.jobId,
+        jobName: job.title,
+        salaryRange: job.salary,
+        jobDesc: '',
+        experience: job.experience || job.education || '经验不限',
+        degree: job.education || '学历不限',
+        positionType: '',
+        jobTags: parsedSkills.length > 0 ? parsedSkills : parsedTags,
+        city: job.city || '',
+        area: job.area || '',
+        businessDistrict: job.businessDistrict || '',
+        address: job.address || '',
+        isHeadhunter: !!job.isHeadhunter,
+        clientCompanyName: job.isHeadhunter ? job.companyFullName : '',
+        dataSource: job.dataSource || '',
+        jobStatus: job.status || '',
+        hrActiveStatus: job.hrActiveStatus || '',
+        hrActiveLevel: job.hrActiveLevel || 'unknown'
       }
 
-      // Fallback tags from rawData if custom tags is empty
-      if (parsedTags.length === 0 && parsedRawData) {
-        let rawTagsStr = parsedRawData['技能标签'] || (parsedRawData.jobInfo && parsedRawData.jobInfo.showSkills) || ''
-        if (typeof rawTagsStr === 'string' && rawTagsStr) {
-          parsedTags = rawTagsStr.split(',').map((t: string) => t.trim()).filter(Boolean)
-        }
-      }
-
-      // 提取 Boss 职位补充详情
-      let parsedBossSingleDetail = null;
-      if (job.platform === 'Boss直聘' && bossSingleDetailsMap[job.jobId]) {
-        try {
-          parsedBossSingleDetail = JSON.parse(bossSingleDetailsMap[job.jobId].rawData)
-        } catch (e) { }
-      }
-      const normalizedData = normalizeJobData(job, parsedRawData, parsedRawData2, node.rawData, parsedBossSingleDetail)
-
-      const { rawData, rawData2, tags, ...jobWithoutRawData } = job as any;
+      const { tags, ...jobWithoutRawData } = job as any;
       let companyWithoutRawData = null;
       if (node) {
         const { rawData: companyRaw, rawData2: companyRaw2, jobs: _jobs, platformSources: _platformSources, ...restCompany } = node as any;

@@ -11,6 +11,7 @@ export default defineEventHandler(async (event) => {
   const filterShowHidden = query.filterShowHidden === 'true'
   const filterMissingBossDetail = query.filterMissingBossDetail === 'true'
   const filterExcludeHeadhunter = query.filterExcludeHeadhunter === 'true'
+  const headhunterFilter = (query.headhunterFilter as string) || (filterExcludeHeadhunter ? 'direct' : 'all')
   const platform = query.platform as string || 'all'
   const education = query.education as string || 'all'
   const keyword = query.keyword as string || ''
@@ -47,9 +48,11 @@ export default defineEventHandler(async (event) => {
       whereClause.isFavorited = true
     }
 
-    // Headhunter filter (排除猎头/代招，仅看直招)
-    if (filterExcludeHeadhunter) {
+    // Headhunter filter (直招 / 猎头代招 / 全部)
+    if (headhunterFilter === 'direct') {
       whereClause.isHeadhunter = false
+    } else if (headhunterFilter === 'headhunter') {
+      whereClause.isHeadhunter = true
     }
 
     // Platform filter
@@ -89,6 +92,19 @@ export default defineEventHandler(async (event) => {
     // HR 活跃度过滤 (活跃 active / 适中 moderate / 僵尸岗 zombie)
     if (hrActiveFilter !== 'all') {
       whereClause.hrActiveLevel = hrActiveFilter
+    }
+
+    // 薪资范围过滤 (直接走数据库原生数值索引，无需全表扫入内存跑正则)
+    if (salaryFilter !== 'all') {
+      const [fMinStr, fMaxStr] = salaryFilter.split('-')
+      const fMin = parseFloat(fMinStr)
+      const fMax = fMaxStr ? parseFloat(fMaxStr) : 999
+      andConditions.push({
+        salaryAvg: {
+          gte: fMin,
+          lte: fMax
+        }
+      })
     }
     
     // AI Diagnosis filter
@@ -131,15 +147,14 @@ export default defineEventHandler(async (event) => {
     let totalJobs = 0
     let jobs: any[] = []
     
-    // 如果有前端复杂过滤条件（薪资、AI状态、未抓取详情），采用两阶段查询：第一阶段仅拉取轻量 ID 和薪资/状态字段计算分页，第二阶段仅取当页 20 条详情
-    if (salaryFilter !== 'all' || aiDiagnosisFilter !== 'all' || filterMissingBossDetail) {
+    // 仅在勾选了依赖内存集合的条件时采用轻量级两阶段查询；常规查询（含薪资范围）100% 走纯数据库原生分页
+    if (aiDiagnosisFilter !== 'all' || filterMissingBossDetail) {
       const allJobStubs = await prisma.job.findMany({
         where: whereClause,
         select: {
           id: true,
           jobId: true,
           platform: true,
-          salary: true,
           updatedAt: true
         },
         orderBy: { updatedAt: 'desc' }
@@ -160,49 +175,6 @@ export default defineEventHandler(async (event) => {
         if (aiDiagnosisFilter === 'undiagnosed' && aiDiagnosedJobIdsSet.has(job.jobId)) {
           return false
         }
-
-        // Salary Filter
-        if (salaryFilter !== 'all') {
-          const salaryStr = job.salary ? job.salary.toUpperCase() : ''
-          let min = 0, max = 0
-          
-          const kMatch = salaryStr.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)K/)
-          if (kMatch) {
-            min = parseFloat(kMatch[1])
-            max = parseFloat(kMatch[2])
-          } else {
-            const wMatch = salaryStr.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)万/)
-            if (wMatch) {
-              min = parseFloat(wMatch[1]) * 10
-              max = parseFloat(wMatch[2]) * 10
-            } else {
-              const dMatch = salaryStr.match(/(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)元\/天/)
-              if (dMatch) {
-                min = (parseFloat(dMatch[1]) * 22) / 1000
-                max = (parseFloat(dMatch[2]) * 22) / 1000
-              } else {
-                const singleKMatch = salaryStr.match(/(\d+(?:\.\d+)?)K/)
-                if (singleKMatch) {
-                  min = max = parseFloat(singleKMatch[1])
-                } else {
-                  const singleWMatch = salaryStr.match(/(\d+(?:\.\d+)?)万/)
-                  if (singleWMatch) {
-                    min = max = parseFloat(singleWMatch[1]) * 10
-                  }
-                }
-              }
-            }
-          }
-          
-          if (min === 0 && max === 0) return false
-          
-          const [fMinStr, fMaxStr] = salaryFilter.split('-')
-          const fMin = parseFloat(fMinStr)
-          const fMax = fMaxStr ? parseFloat(fMaxStr) : 999
-          
-          const avg = (min + max) / 2
-          if (avg < fMin || avg > fMax) return false
-        }
         
         return true
       })
@@ -214,7 +186,15 @@ export default defineEventHandler(async (event) => {
       if (pagedIds.length > 0) {
         jobs = await prisma.job.findMany({
           where: { id: { in: pagedIds } },
-          orderBy: { updatedAt: 'desc' }
+          orderBy: { updatedAt: 'desc' },
+          include: {
+            detailPayload: {
+              select: {
+                jobDesc: true,
+                jobUrl: true
+              }
+            }
+          }
         })
       } else {
         jobs = []
@@ -230,7 +210,15 @@ export default defineEventHandler(async (event) => {
           updatedAt: 'desc'
         },
         skip: (page - 1) * pageSize,
-        take: pageSize
+        take: pageSize,
+        include: {
+          detailPayload: {
+            select: {
+              jobDesc: true,
+              jobUrl: true
+            }
+          }
+        }
       })
     }
 
@@ -255,17 +243,7 @@ export default defineEventHandler(async (event) => {
     }) : [];
     const companyMap = Object.fromEntries(companies.map(c => [`${c.sourcePlatform}_${c.companyName}`, c]));
 
-    // Batch query BossSingleDetails for Boss jobs
-    const bossJobIds = jobs.filter(j => j.platform === 'Boss直聘').map(j => j.jobId);
-    let bossSingleDetailsMap: Record<string, any> = {};
-    if (jobIds.length > 0) {
-      const bossDetails = await prisma.jobDetail.findMany({
-        where: { jobId: { in: jobIds }, platform: 'Boss直聘' }
-      });
-      bossSingleDetailsMap = Object.fromEntries(bossDetails.map(d => [d.jobId, d]));
-    }
-
-    // Merge everything for the frontend
+    // Merge everything for the frontend (直接利用结构化数据，告别运行时大规模 JSON.parse 与正则)
     const mergedJobs = jobs.map(job => {
       let parsedTags = []
       if (job.tags) {
@@ -273,38 +251,74 @@ export default defineEventHandler(async (event) => {
           parsedTags = JSON.parse(job.tags)
         } catch (e) { }
       }
-      let parsedRawData = {};
-      try {
-        parsedRawData = JSON.parse(job.rawData);
-      } catch (e) { }
-      let parsedRawData2 = {};
-      try {
-        parsedRawData2 = JSON.parse(job.rawData2);
-      } catch (e) { }
 
-      let parsedBossSingleDetail = null;
-      if (job.platform === 'Boss直聘' && bossSingleDetailsMap[job.jobId]) {
+      let parsedSkills = []
+      if (job.skills) {
         try {
-          parsedBossSingleDetail = JSON.parse(bossSingleDetailsMap[job.jobId].rawData);
+          parsedSkills = JSON.parse(job.skills)
+        } catch (e) { }
+      }
+
+      let parsedWelfare = []
+      if (job.welfareList) {
+        try {
+          parsedWelfare = JSON.parse(job.welfareList)
         } catch (e) { }
       }
 
       const companyInfo = companyMap[`${job.platform}_${job.companyName}`];
-      let parsedCompanyRawData = null;
       let companyWithoutRawData = null;
       if (companyInfo) {
         const { rawData: companyRaw, ...restCompany } = companyInfo;
         companyWithoutRawData = restCompany;
-        if (companyInfo.rawData) {
-          try {
-            parsedCompanyRawData = JSON.parse(companyInfo.rawData);
-          } catch (e) { }
-        }
       }
 
-      const normalizedData = normalizeJobData(job, parsedRawData, parsedRawData2, parsedCompanyRawData, parsedBossSingleDetail);
+      let normalizedData: any = null
+      if (job.city || job.skills || job.detailPayload?.jobDesc) {
+        normalizedData = {
+          jobUrl: job.detailPayload?.jobUrl || '',
+          publishDate: '',
+          updateDate: '',
+          spiderDate: '',
+          companyIndustry: companyInfo?.industry || '',
+          companyStage: companyInfo?.stage || '',
+          companyScale: companyInfo?.scale || '',
+          brandName: job.companyName,
+          companyFullName: job.companyFullName || job.companyName,
+          companyId: job.companyId || '',
+          hrName: job.hrName || '',
+          hrPosition: job.hrPosition || '',
+          hrCompanyName: job.companyName,
+          welfareList: parsedWelfare,
+          skills: parsedSkills,
+          jobId: job.jobId,
+          jobName: job.title,
+          salaryRange: job.salary,
+          jobDesc: job.detailPayload?.jobDesc || '暂无描述',
+          experience: job.experience || job.education || '经验不限',
+          degree: job.education || '学历不限',
+          positionType: '',
+          jobTags: parsedSkills,
+          city: job.city || '',
+          area: job.area || '',
+          businessDistrict: job.businessDistrict || '',
+          address: job.address || '',
+          isHeadhunter: !!job.isHeadhunter,
+          clientCompanyName: job.isHeadhunter ? job.companyFullName : '',
+          dataSource: job.dataSource || '',
+          jobStatus: job.status || '',
+          hrActiveStatus: job.hrActiveStatus || '',
+          hrActiveLevel: job.hrActiveLevel || 'unknown'
+        }
+      } else {
+        let parsedRawData = {}
+        try { parsedRawData = JSON.parse(job.rawData || '{}') } catch (e) { }
+        let parsedRawData2 = {}
+        try { parsedRawData2 = JSON.parse(job.rawData2 || '{}') } catch (e) { }
+        normalizedData = normalizeJobData(job, parsedRawData, parsedRawData2, null, null)
+      }
 
-      const { rawData, tags, ...jobWithoutRawData } = job;
+      const { rawData, rawData2, tags, detailPayload, ...jobWithoutRawData } = job;
 
       return {
         ...jobWithoutRawData,

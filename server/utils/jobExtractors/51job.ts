@@ -2,6 +2,7 @@ import type { JobProcessor } from './types'
 import { cleanCompanyName } from '../companyProcessors/types'
 import { computeDescHash } from '../descHash'
 import { resolveJobHrActive } from '../hrAnalytics'
+import { extractStructuredAndPayload, syncJobDetailPayload } from '../jobDualWriter'
 
 export const process51Job: JobProcessor = async (job, platform, prisma) => {
   // 解析 51job 的职位数据
@@ -22,6 +23,7 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
   const updatedAt = new Date()
   const descHash = computeDescHash(job)
   const hr = resolveJobHrActive(job, null, platform)
+  const { structuredJobData, payloadData } = extractStructuredAndPayload(job, platform, stringifiedData)
 
   // 组装职位更新数据
   const updateData: any = {
@@ -37,7 +39,8 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
     descHash: descHash,
     hrActiveStatus: hr.hrActiveStatus || null,
     hrActiveLevel: hr.hrActiveLevel,
-    rawData: stringifiedData
+    rawData: stringifiedData,
+    ...structuredJobData
   }
 
   // 组装职位创建数据
@@ -59,7 +62,8 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
     descHash: descHash,
     hrActiveStatus: hr.hrActiveStatus || null,
     hrActiveLevel: hr.hrActiveLevel,
-    rawData: stringifiedData
+    rawData: stringifiedData,
+    ...structuredJobData
   }
 
   // 组装公司的rowData字段的json数据
@@ -107,6 +111,9 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
     update: updateData,
     create: createData
   })
+
+  // 阶段一双写：同步更新冷数据附表
+  await syncJobDetailPayload(prisma, savedJob.id, payloadData)
 
   if (isChanged) {
     ;(savedJob as any).isChanged = true

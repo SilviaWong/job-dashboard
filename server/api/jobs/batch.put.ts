@@ -10,7 +10,11 @@ export default defineEventHandler(async (event) => {
 
   try {
     const dataToUpdate: any = {}
-    if (body.status !== undefined) dataToUpdate.status = body.status
+    if (body.status !== undefined) {
+      dataToUpdate.status = body.status
+      dataToUpdate.applyStatus = body.status
+      dataToUpdate.statusUpdatedAt = new Date()
+    }
     if (body.isFavorited !== undefined) dataToUpdate.isFavorited = body.isFavorited
     if (body.isHidden !== undefined) dataToUpdate.isHidden = body.isHidden
     if (body.tags !== undefined) {
