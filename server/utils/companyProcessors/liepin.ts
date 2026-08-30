@@ -36,7 +36,8 @@ export const processLiepinCompany: CompanyProcessor = async (company, platform, 
 
   // 统一平台标识为中文“猎聘”
   const standardizedPlatform = (platform === 'liepin' || platform === '猎聘') ? '猎聘' : platform
-  const stringifiedData = JSON.stringify(company)
+  const rawData = company.rawData || company
+  const stringifiedData = JSON.stringify(rawData)
   const createdAt = new Date()
   const updatedAt = new Date()
 

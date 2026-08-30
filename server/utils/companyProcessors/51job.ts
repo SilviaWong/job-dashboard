@@ -36,7 +36,8 @@ export const process51JobCompany: CompanyProcessor = async (company, platform, p
 
   // 统一平台标识为中文“前程无忧”或传入的平台标识
   const standardizedPlatform = (platform === '51job' || platform === '前程无忧') ? '前程无忧' : platform
-  const stringifiedData = JSON.stringify(coInfo)
+  const rawData = company.rawData || coInfo || company
+  const stringifiedData = JSON.stringify(rawData)
   const createdAt = new Date()
   const updatedAt = new Date()
 

@@ -36,7 +36,8 @@ export const processZhilianCompany: CompanyProcessor = async (company, platform,
   cFullName = cleanCompanyName(cFullName)
   companyId = String(companyId).trim()
 
-  const stringifiedData = JSON.stringify(company)
+  const rawData = company.rawData || company
+  const stringifiedData = JSON.stringify(rawData)
   const createdAt = new Date()
   const updatedAt = new Date()
 
