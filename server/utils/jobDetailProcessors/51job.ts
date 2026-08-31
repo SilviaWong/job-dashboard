@@ -8,15 +8,18 @@ import { cleanHtmlText } from '../jobNormalizer'
  * 
  * 核心逻辑与数据流设计：
  * 1. 提取并校验职位关键信息（jobId、职位名称、公司名称、公司全称、招聘状态等）；
+ *    - 兼容扁平顶层字段与 raw_detail_json (detailJobInfo, pcdetailJobInfo, jobHrInfo) 结构；
+ *    - 提取 51job 特有的加密企业编号 encryCompanyId 与数字 coId。
  * 2. 异常页面与失效状态诊断：
  *    - 若职位名称、公司名称、公司全称皆为空，判定为失效/下架页面；
  *    - 若属于失效页面，读取旧数据并更新状态为“职位已失效”，避免脏数据覆盖有效内容。
  * 3. 持久化至 JobDetail 表（upsert 操作）；
  * 4. 跨表双向联动更新：
- *    - 同步更新 Job 表的 `companyFullName`；
+ *    - 同步更新 Job 表的 `companyFullName` 以及 `companyId` (以 encryCompanyId 为准)；
  *    - 职位失效/下架时，同步更新 Job 表状态为 `JobStatus.EXPIRED`；
  *    - 若抓取到有效职位描述，同步清洗并写入 JobDetailPayload 冷数据表；
- * 5. 联动更新 Company 企业表中的企业全称。
+ * 5. 联动更新 Company 企业表中的企业全称：
+ *    - 优先采用 encryCompanyId 精确匹配，支持数字 ID 与企业简称/全称多路 OR 兜底。
  * 
  * @param detail 从 51job 详情页抓取的原始职位详情数据对象
  * @param rawPlatform 平台名称或标识（如 '51job' 或 '前程无忧'）
@@ -28,9 +31,11 @@ export async function process51JobDetail(detail: any, rawPlatform: string, prism
   // 第一步：提取并校验关键字段（jobId、职位名、公司全称、招聘状态等）
   // =========================================================================
   const standardizedPlatform = (rawPlatform === '51job' || rawPlatform === '前程无忧') ? '51job' : rawPlatform || '51job'
-  const detailJobInfo = detail.detailJobInfo || {}
-  const coInfo = detail.coinfo || {}
-  const license = detail.license || {}
+  const rawDetail = detail.raw_detail_json || {}
+  const detailJobInfo = detail.detailJobInfo || rawDetail.detailJobInfo || {}
+  const pcInfo = detail.pcdetailJobInfo || rawDetail.pcdetailJobInfo || {}
+  const coInfo = detail.coinfo || rawDetail.coinfo || {}
+  const license = detail.license || rawDetail.license || {}
 
   let jobId = detail['职位ID'] || detail.jobId || detail.id || detail['job_id'] || detailJobInfo.jobId || ''
 
@@ -42,7 +47,7 @@ export async function process51JobDetail(detail: any, rawPlatform: string, prism
   const jobTitle = detail['职位名称'] || detail.jobName || detailJobInfo.jobName || ''
   const companyName = cleanCompanyName(detail['公司名称'] || detail.companyName || detailJobInfo.companyName || detailJobInfo.coName || coInfo.coname || '')
   const companyFullName = cleanCompanyName(detail['公司全称'] || detail.companyFullName || license.businessName || coInfo.coname || detailJobInfo.companyName || companyName || '')
-  const jobStatus = detail['招聘状态'] || detail.jobStatus || (detailJobInfo.term === '1' ? '职位已下架' : '') || ''
+  const jobStatus = detail['招聘状态'] || detail.jobStatus || (detailJobInfo.term === '1' || detailJobInfo.term === 1 ? '职位已下架' : '') || ''
 
   // 判断是否为异常/已下架页面：若职位名称、公司名称、公司全称均为空，说明页面已关闭或失效
   const isInvalidPage = !companyFullName && !jobTitle && !companyName
@@ -106,16 +111,21 @@ export async function process51JobDetail(detail: any, rawPlatform: string, prism
   // =========================================================================
   // 第四步：联动更新 Job 职位表中的相关字段
   // =========================================================================
-  // 4.1 同步更新 Job 表中的公司全称 companyFullName
-  if (companyFullName) {
-    await prisma.job.updateMany({
-      where: { jobId: String(jobId), platform: standardizedPlatform },
-      data: {
-        companyFullName: companyFullName,
-        updatedAt: updatedAt
-      }
-    })
+  // 提取 51job 核心加密企业 ID (encryCompanyId)，该 ID 与 Job 表和 Company 表的主键保持一致
+  const encryCompanyId = detail.encryCompanyId || pcInfo.encryCompanyId || detail.encCoId || ''
+  const numericCompanyId = detail['公司ID'] || detail.companyId || detailJobInfo.coId || coInfo.coid || ''
+
+  // 4.1 同步更新 Job 表中的公司全称 companyFullName 以及 companyId
+  const jobUpdateData: any = {
+    updatedAt: updatedAt
   }
+  if (companyFullName) jobUpdateData.companyFullName = companyFullName
+  if (encryCompanyId) jobUpdateData.companyId = String(encryCompanyId)
+
+  await prisma.job.updateMany({
+    where: { jobId: String(jobId), platform: standardizedPlatform },
+    data: jobUpdateData
+  })
 
   // 4.2 若职位已关闭或失效，同步更新 Job 表状态为 EXPIRED (已失效)
   if (
@@ -169,20 +179,43 @@ export async function process51JobDetail(detail: any, rawPlatform: string, prism
   // =========================================================================
   // 第五步：联动更新 Company 企业表中的企业全称
   // =========================================================================
-  const companyId = detail['公司ID'] || detail.companyId || detail.encCoId || detail.coId || detailJobInfo.coId || coInfo.coid || coInfo.encryCompanyId || ''
-  if (companyId && companyFullName) {
-    const companies = await prisma.company.findMany({
-      where: { companyId: String(companyId), sourcePlatform: standardizedPlatform }
-    })
+  if (companyFullName) {
+    const orConditions: any[] = []
+    // 51job Company 表中的 companyId 统一存的是 encryCompanyId (如 AWRUN146BT4CYAdmUTE)
+    if (encryCompanyId) {
+      orConditions.push({ companyId: String(encryCompanyId) })
+    }
+    if (numericCompanyId) {
+      orConditions.push({ companyId: String(numericCompanyId) })
+    }
+    if (companyName) {
+      orConditions.push({ companyName: companyName })
+    }
+    if (detailJobInfo.coName) {
+      const cleanedCoName = cleanCompanyName(detailJobInfo.coName)
+      if (cleanedCoName && cleanedCoName !== companyName) {
+        orConditions.push({ companyName: cleanedCoName })
+      }
+    }
 
-    for (const company of companies) {
-      await prisma.company.update({
-        where: { id: company.id },
-        data: {
-          companyFullName: companyFullName,
-          updatedAt: updatedAt
+    if (orConditions.length > 0) {
+      const companies = await prisma.company.findMany({
+        where: {
+          sourcePlatform: standardizedPlatform,
+          OR: orConditions
         }
       })
+
+      for (const company of companies) {
+        await prisma.company.update({
+          where: { id: company.id },
+          data: {
+            companyFullName: companyFullName,
+            ...(encryCompanyId && (!company.companyId || company.companyId === String(numericCompanyId)) ? { companyId: String(encryCompanyId) } : {}),
+            updatedAt: updatedAt
+          }
+        })
+      }
     }
   }
 

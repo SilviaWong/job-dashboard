@@ -1,15 +1,28 @@
 <template>
   <el-drawer
     v-model="visible"
-    :title="job?.title || '职位详情'"
     size="75%"
     destroy-on-close
     class="detail-drawer"
+    :with-header="false"
   >
     <template #default>
       <div v-if="job" class="drawer-split-layout">
         <!-- 左侧：岗位详情 -->
         <div class="drawer-left">
+          <div class="drawer-left-topbar">
+            <div class="drawer-breadcrumb">
+              <el-tag size="small" type="primary" effect="plain" class="platform-mini-tag">
+                <el-icon><Globe /></el-icon>&nbsp;{{ job.platform }}
+              </el-tag>
+              <span class="breadcrumb-sep">/</span>
+              <span class="breadcrumb-title">职位详情</span>
+              <el-tag v-if="isJobExpired" size="small" type="danger" effect="light" class="status-mini-tag">
+                已失效
+              </el-tag>
+            </div>
+          </div>
+
           <div class="drawer-left-content">
             <div class="detail-header">
               <h1 class="detail-title">{{ job.title }}</h1>
@@ -78,81 +91,93 @@
 
         <!-- 右侧：AI 分析 -->
         <div class="drawer-right">
-          <div class="ai-panel">
-            <template v-if="job.aiResult">
-              <div class="ai-score-card-drawer">
-                <el-progress type="dashboard" :percentage="job.aiResult.score || 0" :color="getScoreColor(job.aiResult.score)" :width="100">
-                  <template #default="{ percentage }">
-                    <span class="ai-score-big">{{ percentage }}分</span>
-                  </template>
-                </el-progress>
-                <div class="ai-score-text">
-                  <h3>AI 匹配度评分 <el-tag :type="getScoreColor(job.aiResult.score, true)" size="small" effect="dark" style="margin-left: 5px;">{{ job.aiResult.matchLevel || '-' }}</el-tag></h3>
-                  <span class="ai-time">最新评分</span>
+          <div class="drawer-right-topbar">
+            <div class="ai-topbar-title">
+              <el-icon class="ai-topbar-icon"><Sparkles /></el-icon>
+              <span>AI 深度评估</span>
+            </div>
+            <button class="drawer-close-btn" @click="visible = false" title="关闭 (Esc)">
+              <el-icon :size="16"><X /></el-icon>
+            </button>
+          </div>
+
+          <div class="drawer-right-body">
+            <div class="ai-panel">
+              <template v-if="job.aiResult">
+                <div class="ai-score-card-drawer">
+                  <el-progress type="dashboard" :percentage="job.aiResult.score || 0" :color="getScoreColor(job.aiResult.score)" :width="100">
+                    <template #default="{ percentage }">
+                      <span class="ai-score-big">{{ percentage }}分</span>
+                    </template>
+                  </el-progress>
+                  <div class="ai-score-text">
+                    <h3>AI 匹配度评分 <el-tag :type="getScoreColor(job.aiResult.score, true)" size="small" effect="dark" style="margin-left: 5px;">{{ job.aiResult.matchLevel || '-' }}</el-tag></h3>
+                    <span class="ai-time">最新评分</span>
+                  </div>
                 </div>
-              </div>
 
-              <div class="ai-section" style="margin-bottom: 20px;">
-                <h4><el-icon><Lightbulb /></el-icon> 详细分析</h4>
-                <div class="ai-analysis-content" v-html="formatAiAnalysis(job.aiResult.resultText)"></div>
-              </div>
-            </template>
-            
-            <div v-else class="ai-empty" style="margin-bottom: 20px; background: white; border-radius: 12px; border: 1px solid #e2e8f0; padding: 20px;">
-              <el-empty description="暂无综合匹配度分析，可点击下方按钮独立生成预测" :image-size="80" />
-            </div>
-
-            <div class="ai-section generator-section" style="margin-bottom: 20px;">
-              <h4><el-icon><Target /></el-icon> 🎯 面试题目预测</h4>
-              <div v-if="job.aiResult && job.aiResult.predictedQuestions" class="ai-analysis-content" v-html="formatAiAnalysis(job.aiResult.predictedQuestions)"></div>
-              <template v-else>
-                <p class="generator-desc">结合岗位 JD 和您的简历，预测可能被问到的高频面试题。</p>
-                <el-button type="warning" plain class="generate-btn" :loading="predicting" @click="generatePredictions"><el-icon><Sparkles /></el-icon>&nbsp;一键生成面试预测</el-button>
-              </template>
-            </div>
-
-            <div class="ai-section generator-section" style="margin-bottom: 20px;">
-              <h4><el-icon><Sparkles /></el-icon> 🤖 AI 定制打招呼语</h4>
-              <div v-if="job.aiResult && job.aiResult.intro">
-                <div class="ai-analysis-content" v-html="formatAiAnalysis(job.aiResult.intro)"></div>
-                <div style="margin-top: 15px; display: flex; gap: 10px;">
-                  <el-button size="small" @click="copyIntro"><el-icon><Copy /></el-icon>&nbsp;复制打招呼语</el-button>
-                  <el-button size="small" type="primary" plain :loading="generatingGreeting" @click="generateGreeting"><el-icon><RefreshCw /></el-icon>&nbsp;重新生成</el-button>
+                <div class="ai-section" style="margin-bottom: 20px;">
+                  <h4><el-icon><Lightbulb /></el-icon> 详细分析</h4>
+                  <div class="ai-analysis-content" v-html="formatAiAnalysis(job.aiResult.resultText)"></div>
                 </div>
-              </div>
-              <template v-else>
-                <p class="generator-desc">基于您的个人简历画像与当前岗位 JD，一键定制专属、高回复率的求职打招呼语。</p>
-                <el-button type="primary" plain class="generate-btn" :loading="generatingGreeting" @click="generateGreeting"><el-icon><Rocket /></el-icon>&nbsp;🤖 一键生成定制打招呼语</el-button>
               </template>
-            </div>
-
-            <!-- 统一 AI 技能箱 这个功能先屏蔽掉：目前功能还未完善，效果不好-->
-            <!-- <div class="ai-section generator-section">
-              <h4><el-icon><Sparkles /></el-icon> ✨ AI 技能箱</h4>
-              <p class="generator-desc">基于统一大模型配置和您的简历，一键调用求职 Agent 技能。</p>
               
-              <div class="skills-grid" style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
-                <el-button 
-                  v-for="skill in availableSkills" 
-                  :key="skill.id"
-                  type="primary" 
-                  plain 
-                  :loading="runningSkill === skill.id"
-                  @click="executeSkill(skill)"
-                >
-                  <el-icon><Sparkles /></el-icon>&nbsp;{{ skill.name }}
-                </el-button>
-              </div> -->
-
-              <!-- 技能结果展示区 -->
-              <!-- <div v-if="activeSkillResult" class="skill-result-box" style="margin-top: 15px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                <h5 style="margin: 0 0 10px 0; display: flex; justify-content: space-between; align-items: center;">
-                  <span>执行结果：{{ activeSkillName }}</span>
-                  <el-button size="small" @click="copySkillResult"><el-icon><Copy /></el-icon>&nbsp;复制内容</el-button>
-                </h5>
-                <div class="ai-analysis-content" v-html="formatAiAnalysis(activeSkillResult)"></div>
+              <div v-else class="ai-empty" style="margin-bottom: 20px; background: white; border-radius: 12px; border: 1px solid #e2e8f0; padding: 20px;">
+                <el-empty description="暂无综合匹配度分析，可点击下方按钮独立生成预测" :image-size="80" />
               </div>
-            </div> -->
+
+              <div class="ai-section generator-section" style="margin-bottom: 20px;">
+                <h4><el-icon><Target /></el-icon> 🎯 面试题目预测</h4>
+                <div v-if="job.aiResult && job.aiResult.predictedQuestions" class="ai-analysis-content" v-html="formatAiAnalysis(job.aiResult.predictedQuestions)"></div>
+                <template v-else>
+                  <p class="generator-desc">结合岗位 JD 和您的简历，预测可能被问到的高频面试题。</p>
+                  <el-button type="warning" plain class="generate-btn" :loading="predicting" @click="generatePredictions"><el-icon><Sparkles /></el-icon>&nbsp;一键生成面试预测</el-button>
+                </template>
+              </div>
+
+              <div class="ai-section generator-section" style="margin-bottom: 20px;">
+                <h4><el-icon><Sparkles /></el-icon> 🤖 AI 定制打招呼语</h4>
+                <div v-if="job.aiResult && job.aiResult.intro">
+                  <div class="ai-analysis-content" v-html="formatAiAnalysis(job.aiResult.intro)"></div>
+                  <div style="margin-top: 15px; display: flex; gap: 10px;">
+                    <el-button size="small" @click="copyIntro"><el-icon><Copy /></el-icon>&nbsp;复制打招呼语</el-button>
+                    <el-button size="small" type="primary" plain :loading="generatingGreeting" @click="generateGreeting"><el-icon><RefreshCw /></el-icon>&nbsp;重新生成</el-button>
+                  </div>
+                </div>
+                <template v-else>
+                  <p class="generator-desc">基于您的个人简历画像与当前岗位 JD，一键定制专属、高回复率的求职打招呼语。</p>
+                  <el-button type="primary" plain class="generate-btn" :loading="generatingGreeting" @click="generateGreeting"><el-icon><Rocket /></el-icon>&nbsp;🤖 一键生成定制打招呼语</el-button>
+                </template>
+              </div>
+
+              <!-- 统一 AI 技能箱 这个功能先屏蔽掉：目前功能还未完善，效果不好-->
+              <!-- <div class="ai-section generator-section">
+                <h4><el-icon><Sparkles /></el-icon> ✨ AI 技能箱</h4>
+                <p class="generator-desc">基于统一大模型配置和您的简历，一键调用求职 Agent 技能。</p>
+                
+                <div class="skills-grid" style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+                  <el-button 
+                    v-for="skill in availableSkills" 
+                    :key="skill.id"
+                    type="primary" 
+                    plain 
+                    :loading="runningSkill === skill.id"
+                    @click="executeSkill(skill)"
+                  >
+                    <el-icon><Sparkles /></el-icon>&nbsp;{{ skill.name }}
+                  </el-button>
+                </div> -->
+
+                <!-- 技能结果展示区 -->
+                <!-- <div v-if="activeSkillResult" class="skill-result-box" style="margin-top: 15px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                  <h5 style="margin: 0 0 10px 0; display: flex; justify-content: space-between; align-items: center;">
+                    <span>执行结果：{{ activeSkillName }}</span>
+                    <el-button size="small" @click="copySkillResult"><el-icon><Copy /></el-icon>&nbsp;复制内容</el-button>
+                  </h5>
+                  <div class="ai-analysis-content" v-html="formatAiAnalysis(activeSkillResult)"></div>
+                </div>
+              </div> -->
+            </div>
           </div>
         </div>
       </div>
@@ -164,7 +189,7 @@
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { JobStatus } from '~/utils/enums'
-import { Building, MapPin, Map, Briefcase, GraduationCap, Globe, BarChart, Gift, FileText, Lightbulb, Sparkles, Rocket, ExternalLink, Tags, Ban, Target, Copy, RefreshCw, ShieldBan, UserCheck } from 'lucide-vue-next'
+import { Building, MapPin, Map, Briefcase, GraduationCap, Globe, BarChart, Gift, FileText, Lightbulb, Sparkles, Rocket, ExternalLink, Tags, Ban, Target, Copy, RefreshCw, ShieldBan, UserCheck, X } from 'lucide-vue-next'
 
 const emit = defineEmits(['status-changed'])
 
@@ -173,6 +198,12 @@ const job = ref(null)
 const marking = ref(false)
 const predicting = ref(false)
 const generatingGreeting = ref(false)
+
+const isJobExpired = computed(() => {
+  if (!job.value) return false
+  const s = String(job.value.status || '').toLowerCase()
+  return s === 'expired' || s === '已失效' || s === '职位已关闭' || s === '已下线'
+})
 
 const formatDrawerDate = (d) => {
   if (!d) return '-'
@@ -487,10 +518,18 @@ defineExpose({
 
 <style scoped>
 /* Detailed Drawer Split Layout Styles */
+:deep(.el-drawer__header) {
+  display: none !important;
+  margin-bottom: 0 !important;
+  padding: 0 !important;
+}
+
 :deep(.el-drawer__body) {
-  padding: 0;
+  padding: 0 !important;
+  height: 100%;
   overflow: hidden;
 }
+
 .drawer-split-layout {
   display: flex;
   height: 100%;
@@ -502,62 +541,114 @@ defineExpose({
   flex: 3;
   display: flex;
   flex-direction: column;
+  height: 100%;
   overflow: hidden;
   background: #ffffff;
   border-right: 1px solid #e2e8f0;
 }
+
+.drawer-left-topbar {
+  height: 48px;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0 28px;
+  background: #ffffff;
+  border-bottom: 1px solid #f1f5f9;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.drawer-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.platform-mini-tag {
+  font-weight: 500;
+  border-radius: 4px;
+}
+
+.breadcrumb-sep {
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.breadcrumb-title {
+  font-weight: 500;
+  color: #475569;
+}
+
+.status-mini-tag {
+  margin-left: 4px;
+}
+
 .drawer-left-content {
   flex: 1;
-  padding: 24px 32px;
+  padding: 20px 28px;
   overflow-y: auto;
 }
+
 .drawer-left-footer {
-  padding: 16px 32px;
+  padding: 14px 28px;
   background: #ffffff;
   border-top: 1px solid #ebeef5;
-  box-shadow: 0 -4px 12px rgba(0,0,0,0.02);
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.02);
   display: flex;
   justify-content: flex-start;
+  flex-shrink: 0;
 }
+
 .detail-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 16px;
   margin-bottom: 12px;
 }
+
 .detail-title {
   margin: 0;
-  font-size: 24px;
-  font-weight: 600;
-  color: #1e293b;
-  line-height: 1.3;
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.35;
 }
+
 .detail-salary {
   font-size: 22px;
-  font-weight: bold;
+  font-weight: 700;
   color: #0088fb;
   white-space: nowrap;
+  flex-shrink: 0;
 }
+
 .detail-sub-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 15px;
+  font-size: 14px;
   color: #475569;
   font-weight: 500;
   margin-bottom: 8px;
 }
+
 .detail-address {
-  font-size: 14px;
+  font-size: 13px;
   color: #64748b;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
+
 .detail-badges {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
+
 .badge-tag {
   background: #f1f5f9;
   border: none;
@@ -568,34 +659,38 @@ defineExpose({
 
 /* Stats Grid */
 .section-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: bold;
   color: #1e293b;
-  margin: 24px 0 16px 0;
+  margin: 20px 0 14px 0;
   display: flex;
   align-items: center;
   gap: 6px;
 }
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  gap: 14px;
   background: #f8fafc;
   padding: 16px;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
 }
+
 .stat-box {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
+
 .stat-label {
-  font-size: 13px;
+  font-size: 12px;
   color: #64748b;
 }
+
 .stat-value {
-  font-size: 14px;
+  font-size: 13px;
   color: #1e293b;
   font-weight: 500;
 }
@@ -606,15 +701,17 @@ defineExpose({
   flex-wrap: wrap;
   gap: 8px;
 }
+
 .welfare-tag {
   border-radius: 6px;
 }
+
 .job-desc {
-  font-size: 15px;
-  line-height: 1.8;
+  font-size: 14px;
+  line-height: 1.75;
   color: #334155;
   background: #f8fafc;
-  padding: 20px;
+  padding: 18px;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
 }
@@ -622,10 +719,67 @@ defineExpose({
 /* Right Panel (AI) */
 .drawer-right {
   flex: 2;
-  padding: 24px;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
   background: #f8fafc;
 }
+
+.drawer-right-topbar {
+  height: 48px;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.ai-topbar-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.ai-topbar-icon {
+  color: #7c3aed;
+  font-size: 16px;
+}
+
+.drawer-close-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.drawer-close-btn:hover {
+  background: #fee2e2;
+  color: #ef4444;
+  border-color: #fca5a5;
+  transform: scale(1.05);
+}
+
+.drawer-right-body {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
 .ai-panel {
   display: flex;
   flex-direction: column;
