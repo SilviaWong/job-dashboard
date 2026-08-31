@@ -1,6 +1,7 @@
 import { getPrisma } from '#prisma'
 import { JobStatus } from '../../../utils/enums'
 import { cleanCompanyName } from '../companyProcessors/types'
+import { cleanHtmlText } from '../jobNormalizer'
 
 /**
  * 处理并持久化从【智联招聘】平台同步过来的职位详情数据
@@ -13,10 +14,12 @@ import { cleanCompanyName } from '../companyProcessors/types'
  * 3. 持久化至 JobDetail 表（upsert 操作）；
  * 4. 跨表双向联动更新：
  *    - 同步更新 Job 表的 `companyFullName`；
- *    - 若职位下架（jobStatus 为 4 或 '停止招聘' 或页面失效），同步更新 Job 表状态为 `JobStatus.EXPIRED`。
+ *    - 职位失效/下架时（如状态为 4 或 '停止招聘'），同步更新 Job 表状态为 `JobStatus.EXPIRED`；
+ *    - 若抓取到有效职位描述，同步清洗并写入 JobDetailPayload 冷数据表；
+ * 5. 联动更新 Company 企业表中的企业全称。
  * 
  * @param detail 从智联招聘详情页抓取的原始职位详情数据对象
- * @param rawPlatform 平台名称或标识（如 'zhilian' 或 '智联招聘'）
+ * @param rawPlatform 平台名称或标识（如 'zhilian' 或 '智联'）
  * @param prisma Prisma 数据库客户端实例
  */
 export async function processZhilianJobDetail(detail: any, rawPlatform: string, prisma: ReturnType<typeof getPrisma>) {
@@ -24,23 +27,25 @@ export async function processZhilianJobDetail(detail: any, rawPlatform: string, 
   // =========================================================================
   // 第一步：提取并校验关键字段（jobId、职位名、公司全称、招聘状态等）
   // =========================================================================
-  let jobId = detail.jobId || detail['职位ID'] || detail.id || detail['job_id'] || ''
-
-  if (!jobId) {
-    console.warn(`[Zhilian Job Detail Processor] 无法在详情数据中找到 jobId (平台: ${rawPlatform}):`, detail)
-    return
-  }
-
+  const standardizedPlatform = (rawPlatform === 'zhilian' || rawPlatform === '智联招聘' || rawPlatform === '智联') ? '智联' : rawPlatform || '智联'
   const jobDetail = detail.jobDetail || {}
   const detailedPosition = jobDetail.detailedPosition || {}
   const compInfo = jobDetail.detailedCompany || {}
 
-  const jobTitle = detailedPosition.name || detailedPosition.positionName || detail['职位名称'] || ''
-  const companyName = cleanCompanyName(compInfo.companyName || detailedPosition.companyName || detail['公司名称'] || detail['公司全称'] || '')
-  const companyFullName = cleanCompanyName(compInfo.companyName || detail['公司全称'] || '')
+  let jobId = detail['职位ID'] || detail.jobId || detail.id || detail['job_id'] || detailedPosition.positionNumber || detailedPosition.number || ''
+
+  if (!jobId) {
+    console.warn(`[Zhilian Job Detail Processor] 无法在详情数据中找到 jobId (平台: ${standardizedPlatform}):`, detail)
+    return
+  }
+
+  const jobTitle = detail['职位名称'] || detail.jobName || detailedPosition.name || detailedPosition.positionName || ''
+  const companyName = cleanCompanyName(detail['公司名称'] || detail.companyName || compInfo.companyName || detailedPosition.companyName || detail['公司全称'] || '')
+  const companyFullName = cleanCompanyName(detail['公司全称'] || detail.companyFullName || compInfo.companyName || detailedPosition.companyName || companyName || '')
+  const jobStatusRaw = detail['招聘状态'] || detail.jobStatus || jobDetail.jobStatus || detailedPosition.jobStatus || detailedPosition.positionStatus || ''
 
   // 如果获取不到职位名称和公司名称，说明可能是失效/下架页面
-  const isInvalidPage = !jobTitle && !companyName
+  const isInvalidPage = !companyFullName && !jobTitle && !companyName
 
   let stringifiedData = JSON.stringify(detail)
   const createdAt = new Date()
@@ -54,7 +59,7 @@ export async function processZhilianJobDetail(detail: any, rawPlatform: string, 
       where: {
         jobId_platform: {
           jobId: String(jobId),
-          platform: rawPlatform
+          platform: standardizedPlatform
         }
       }
     })
@@ -65,6 +70,7 @@ export async function processZhilianJobDetail(detail: any, rawPlatform: string, 
         parsedOldData['招聘状态'] = '职位已失效'
         stringifiedData = JSON.stringify(parsedOldData)
       } catch (e) {
+        console.error('[Zhilian Job Detail Processor] 解析旧 rawData 失败, jobId:', jobId)
         detail['招聘状态'] = '职位已失效'
         stringifiedData = JSON.stringify(detail)
       }
@@ -81,7 +87,7 @@ export async function processZhilianJobDetail(detail: any, rawPlatform: string, 
     where: {
       jobId_platform: {
         jobId: String(jobId),
-        platform: rawPlatform
+        platform: standardizedPlatform
       }
     },
     update: {
@@ -90,7 +96,7 @@ export async function processZhilianJobDetail(detail: any, rawPlatform: string, 
     },
     create: {
       jobId: String(jobId),
-      platform: rawPlatform,
+      platform: standardizedPlatform,
       rawData: stringifiedData,
       createdAt: createdAt,
       updatedAt: updatedAt
@@ -103,7 +109,7 @@ export async function processZhilianJobDetail(detail: any, rawPlatform: string, 
   // 4.1 同步更新 Job 表中的公司全称 companyFullName
   if (companyFullName) {
     await prisma.job.updateMany({
-      where: { jobId: String(jobId), platform: rawPlatform },
+      where: { jobId: String(jobId), platform: standardizedPlatform },
       data: {
         companyFullName: companyFullName,
         updatedAt: updatedAt
@@ -111,11 +117,18 @@ export async function processZhilianJobDetail(detail: any, rawPlatform: string, 
     })
   }
 
-  // 4.2 若职位下架（jobStatusRaw 为 4 或 '停止招聘'，或页面失效），同步更新 Job 表状态为 EXPIRED (已失效)
-  const jobStatusRaw = detail.jobStatus || jobDetail.jobStatus || jobDetail.positionStatus
-  if (isInvalidPage || jobStatusRaw === 4 || jobStatusRaw === '停止招聘') {
+  // 4.2 若职位下架（jobStatusRaw 为 4 或 '停止招聘' 或 '职位已失效' 或 '职位已关闭' 或 '已下线'，或页面失效），同步更新 Job 表状态为 EXPIRED (已失效)
+  if (
+    isInvalidPage ||
+    jobStatusRaw === 4 ||
+    jobStatusRaw === '4' ||
+    jobStatusRaw === '停止招聘' ||
+    jobStatusRaw === '职位已失效' ||
+    jobStatusRaw === '职位已关闭' ||
+    jobStatusRaw === '已下线'
+  ) {
     await prisma.job.updateMany({
-      where: { jobId: String(jobId), platform: rawPlatform },
+      where: { jobId: String(jobId), platform: standardizedPlatform },
       data: {
         status: JobStatus.EXPIRED,
         updatedAt: updatedAt
@@ -123,6 +136,56 @@ export async function processZhilianJobDetail(detail: any, rawPlatform: string, 
     })
   }
 
+  // 4.3 若抓取到有效职位描述，同步清洗并写入 JobDetailPayload 冷数据表
+  const rawJobDesc = detail['职位描述'] || detail.jobDescribe || detailedPosition.description || detailedPosition.jobDesc || jobDetail.position?.desc?.description || ''
+  if (rawJobDesc) {
+    try {
+      const targetJob = await prisma.job.findFirst({
+        where: { jobId: String(jobId), platform: standardizedPlatform },
+        select: { id: true }
+      })
+      if (targetJob) {
+        const cleanDesc = cleanHtmlText(rawJobDesc)
+        const jobUrl = detail['抓取源URL'] || detail['职位链接'] || detail.positionUrl || detailedPosition.positionUrl || detail.jobUrl || detail.url || ''
+        await prisma.jobDetailPayload.upsert({
+          where: { jobRecordId: targetJob.id },
+          update: {
+            jobDesc: cleanDesc,
+            rawData2: stringifiedData,
+            ...(jobUrl ? { jobUrl } : {})
+          },
+          create: {
+            jobRecordId: targetJob.id,
+            jobDesc: cleanDesc,
+            rawData2: stringifiedData,
+            jobUrl: jobUrl || null
+          }
+        })
+      }
+    } catch (e) {
+      console.error('[Zhilian Job Detail Processor] 同步更新 JobDetailPayload 异常:', e)
+    }
+  }
+
+  // =========================================================================
+  // 第五步：联动更新 Company 企业表中的企业全称
+  // =========================================================================
+  const companyId = detail['公司ID'] || detail.companyId || detail.companyNumber || compInfo.companyNumber || detailedPosition.companyNumber || ''
+  if (companyId && companyFullName) {
+    const companies = await prisma.company.findMany({
+      where: { companyId: String(companyId), sourcePlatform: standardizedPlatform }
+    })
+
+    for (const company of companies) {
+      await prisma.company.update({
+        where: { id: company.id },
+        data: {
+          companyFullName: companyFullName,
+          updatedAt: updatedAt
+        }
+      })
+    }
+  }
+
   return result
 }
-
