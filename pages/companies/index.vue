@@ -103,15 +103,6 @@
                   <el-tag size="small" type="success" v-if="company.scale || company.rawData?.scale">
                     {{ company.scale || company.rawData?.scale }}
                   </el-tag>
-                  <el-tag size="small" type="warning" v-if="company.stage || company.rawData?.stage">
-                    {{ company.stage || company.rawData?.stage }}
-                  </el-tag>
-                  <el-tag size="small" type="primary" effect="plain" v-if="company.companyType">
-                    {{ company.companyType }}
-                  </el-tag>
-                  <el-tag size="small" type="info" effect="plain" v-if="company.creditCode" :title="'统一社会信用代码: ' + company.creditCode" style="font-family: monospace;">
-                    代码: {{ company.creditCode }}
-                  </el-tag>
                   <el-tag size="small" type="success" effect="dark" style="margin-left: 10px;">
                     共 {{ company.jobs?.length || 0 }} 个职位
                   </el-tag>
@@ -174,29 +165,6 @@
                 </el-button>
               </div>
 
-              <div class="company-info-section" v-if="company.creditCode || company.rawData?.companyDesc || (company.welfareList && company.welfareList.length) || company.rawData?.welfare?.length">
-                <div v-if="company.creditCode" style="margin-bottom: 10px; font-size: 13px; color: #475569;">
-                  <span>📋 <strong>统一社会信用代码：</strong><span style="font-family: monospace; font-weight: 600; color: #0f172a;">{{ company.creditCode }}</span></span>
-                </div>
-                <div v-if="company.rawData?.companyDesc">
-                  <h4 style="margin-top: 5px;">公司介绍</h4>
-                  <p class="company-desc">{{ company.rawData.companyDesc }}</p>
-                </div>
-                
-                <div v-if="(company.welfareList && company.welfareList.length) || company.rawData?.welfare?.length" class="company-welfare">
-                  <h4>公司福利</h4>
-                  <el-tag 
-                    v-for="(w, idx) in (company.welfareList?.length ? company.welfareList : company.rawData?.welfare)" 
-                    :key="idx" 
-                    size="small" 
-                    type="success"
-                    effect="light"
-                    style="margin-right: 8px; margin-bottom: 8px;"
-                  >
-                    {{ w }}
-                  </el-tag>
-                </div>
-              </div>
 
               <!-- 职位网格 (Job Grid) -->
               <div class="job-card-grid" v-if="company.jobs && company.jobs.length > 0">
@@ -599,27 +567,6 @@ onUnmounted(() => {
   padding: 10px 0;
 }
 
-.company-info-section {
-  background-color: #f8f9fa;
-  padding: 15px 20px;
-  border-radius: 8px;
-  margin-bottom: 20px;
-  border-left: 4px solid #409eff;
-}
-
-.company-desc {
-  color: #606266;
-  font-size: 14px;
-  line-height: 1.6;
-  margin: 5px 0 15px 0;
-  white-space: pre-wrap;
-}
-
-.company-welfare h4, .company-info-section h4 {
-  margin: 0 0 10px 0;
-  font-size: 14px;
-  color: #303133;
-}
 
 .job-card-grid {
   display: grid;

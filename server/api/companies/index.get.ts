@@ -124,6 +124,7 @@ export default defineEventHandler(async (event) => {
       if (!companyMap.has(canonicalName)) {
         companyMap.set(canonicalName, {
           companyName: canonicalName,
+          companyFullName: c.companyFullName,
           sourcePlatform: c.sourcePlatform,
           companyId: c.companyId,
           isAgency: c.isAgency,
@@ -142,6 +143,7 @@ export default defineEventHandler(async (event) => {
         if (c.isAgency) {
           existing.isAgency = true;
         }
+        if (!existing.companyFullName && c.companyFullName) existing.companyFullName = c.companyFullName;
         if (!existing.industry && c.industry) existing.industry = c.industry;
         if (!existing.scale && c.scale) existing.scale = c.scale;
         if (!existing.stage && c.stage) existing.stage = c.stage;

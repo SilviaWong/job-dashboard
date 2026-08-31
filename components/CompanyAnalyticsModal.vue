@@ -2,8 +2,8 @@
   <el-dialog
     v-model="visible"
     :title="'🏢 ' + (company?.companyName || '企业') + ' · 招聘画像与趋势'"
-    width="82%"
-    top="6vh"
+    width="84%"
+    top="4vh"
     destroy-on-close
     class="company-analytics-modal"
   >
@@ -11,15 +11,21 @@
       <!-- 头部概览卡片 -->
       <div class="company-header-hero">
         <div class="hero-left">
-          <h2 class="company-main-title">{{ analysis.companyName }}</h2>
+          <div class="company-title-row">
+            <h2 class="company-main-title">{{ analysis.companyName }}</h2>
+            <span v-if="basicInfo.companyFullName && basicInfo.companyFullName !== analysis.companyName" class="company-full-name-sub">
+              {{ basicInfo.companyFullName }}
+            </span>
+          </div>
           <div class="company-meta-tags">
             <el-tag :type="analysis.isAgency ? 'danger' : 'success'" size="small" effect="dark">
               {{ analysis.isAgency ? '代招/猎头' : '企业直招' }}
             </el-tag>
             <el-tag v-for="p in analysis.platformSources" :key="p" size="small" type="info">{{ p }}</el-tag>
-            <el-tag v-if="company?.rawData?.companyIndustry" size="small" effect="plain">{{ company.rawData.companyIndustry }}</el-tag>
-            <el-tag v-if="company?.rawData?.companyScale" size="small" effect="plain">{{ company.rawData.companyScale }}</el-tag>
-            <el-tag v-if="company?.rawData?.companyStage" size="small" effect="plain">{{ company.rawData.companyStage }}</el-tag>
+            <el-tag v-if="basicInfo.industry" size="small" type="primary" effect="plain">{{ basicInfo.industry }}</el-tag>
+            <el-tag v-if="basicInfo.scale" size="small" type="success" effect="plain">{{ basicInfo.scale }}</el-tag>
+            <el-tag v-if="basicInfo.stage" size="small" type="warning" effect="plain">{{ basicInfo.stage }}</el-tag>
+            <el-tag v-if="basicInfo.companyType" size="small" effect="plain">{{ basicInfo.companyType }}</el-tag>
           </div>
         </div>
 
@@ -30,6 +36,137 @@
           <div class="heat-score-label">招聘活跃度 · {{ heatLevel.text }}</div>
           <div class="heat-score-desc">{{ heatLevel.tip }}</div>
         </div>
+      </div>
+
+      <!-- 企业基础档案与工商信息 -->
+      <div v-if="basicInfo.hasAnyBasicInfo" class="basic-profile-card">
+        <div class="profile-header">
+          <div class="profile-title-row">
+            <h3 class="profile-section-title">🏢 企业档案与基本信息</h3>
+            <span class="profile-sub-title">工商注册资质与企业背景概览</span>
+          </div>
+        </div>
+
+        <!-- 关键属性网格 -->
+        <div class="profile-info-grid">
+          <!-- 统一社会信用代码 -->
+          <div class="profile-info-item credit-code-item" v-if="basicInfo.creditCode">
+            <span class="item-label">统一社会信用代码</span>
+            <div class="item-value-box">
+              <span class="code-font">{{ basicInfo.creditCode }}</span>
+              <el-button 
+                size="small" 
+                text 
+                type="primary" 
+                class="copy-code-btn"
+                @click="copyCreditCode(basicInfo.creditCode)"
+              >
+                📋 复制
+              </el-button>
+            </div>
+          </div>
+
+          <!-- 企业性质 -->
+          <div class="profile-info-item" v-if="basicInfo.companyType">
+            <span class="item-label">企业性质</span>
+            <span class="item-value">{{ basicInfo.companyType }}</span>
+          </div>
+
+          <!-- 所属行业 -->
+          <div class="profile-info-item" v-if="basicInfo.industry">
+            <span class="item-label">所属行业</span>
+            <span class="item-value">{{ basicInfo.industry }}</span>
+          </div>
+
+          <!-- 企业规模 -->
+          <div class="profile-info-item" v-if="basicInfo.scale">
+            <span class="item-label">人员规模</span>
+            <span class="item-value">{{ basicInfo.scale }}</span>
+          </div>
+
+          <!-- 融资阶段 -->
+          <div class="profile-info-item" v-if="basicInfo.stage">
+            <span class="item-label">融资阶段</span>
+            <span class="item-value">{{ basicInfo.stage }}</span>
+          </div>
+
+          <!-- 企业官方全称 -->
+          <div class="profile-info-item" v-if="basicInfo.companyFullName && basicInfo.companyFullName !== analysis.companyName">
+            <span class="item-label">企业注册全称</span>
+            <span class="item-value font-medium">{{ basicInfo.companyFullName }}</span>
+          </div>
+
+          <!-- 法定代表人 -->
+          <div class="profile-info-item" v-if="basicInfo.legalPerson">
+            <span class="item-label">法定代表人</span>
+            <span class="item-value">{{ basicInfo.legalPerson }}</span>
+          </div>
+
+          <!-- 注册资本 -->
+          <div class="profile-info-item" v-if="basicInfo.registeredCapital">
+            <span class="item-label">注册资本</span>
+            <span class="item-value">{{ basicInfo.registeredCapital }}</span>
+          </div>
+
+          <!-- 成立时间 -->
+          <div class="profile-info-item" v-if="basicInfo.establishmentDate">
+            <span class="item-label">成立时间</span>
+            <span class="item-value">{{ basicInfo.establishmentDate }}</span>
+          </div>
+
+          <!-- 办公/注册地址 -->
+          <div class="profile-info-item full-width" v-if="basicInfo.address">
+            <span class="item-label">办公/注册地址</span>
+            <span class="item-value">{{ basicInfo.address }}</span>
+          </div>
+        </div>
+
+        <!-- 福利待遇 -->
+        <div v-if="basicInfo.welfare && basicInfo.welfare.length" class="profile-welfare-block">
+          <div class="welfare-label">
+            <span>🎁 企业福利待遇 ({{ basicInfo.welfare.length }} 项)</span>
+          </div>
+          <div class="welfare-tags-row">
+            <el-tag
+              v-for="(w, idx) in basicInfo.welfare"
+              :key="idx"
+              size="small"
+              type="success"
+              effect="light"
+              class="welfare-pill"
+            >
+              {{ w }}
+            </el-tag>
+          </div>
+        </div>
+
+        <!-- 公司介绍 -->
+        <div v-if="basicInfo.description" class="profile-desc-block">
+          <div class="desc-header">
+            <span class="desc-label">📖 公司介绍</span>
+            <el-button 
+              v-if="basicInfo.description.length > 200" 
+              size="small" 
+              link 
+              type="primary" 
+              @click="toggleDesc"
+            >
+              {{ descExpanded ? '收起 ▴' : '展开全部 ▾' }}
+            </el-button>
+          </div>
+          <div 
+            class="desc-content" 
+            :class="{ 'is-collapsed': !descExpanded && basicInfo.description.length > 200 }"
+          >
+            {{ basicInfo.description }}
+          </div>
+        </div>
+      </div>
+
+      <!-- 招聘数据与趋势画像分界标题 -->
+      <div class="section-divider-bar">
+        <span class="divider-title">📊 招聘画像与趋势分析</span>
+        <span class="divider-sub">基于全网多渠道爬取岗位的综合统计分析</span>
       </div>
 
       <!-- KPI 数据矩阵 -->
@@ -136,6 +273,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { ElMessage } from 'element-plus'
 import { analyzeCompany } from '~/utils/companyAnalytics'
 
 // Echarts setup
@@ -163,17 +301,110 @@ use([
 
 const visible = ref(false)
 const company = ref(null)
+const descExpanded = ref(false)
 
 const open = (companyData) => {
   company.value = companyData
+  descExpanded.value = false
   visible.value = true
 }
 
 defineExpose({ open })
 
+const toggleDesc = () => {
+  descExpanded.value = !descExpanded.value
+}
+
+const copyCreditCode = (code) => {
+  if (!code) return
+  if (navigator?.clipboard?.writeText) {
+    navigator.clipboard.writeText(code)
+      .then(() => ElMessage.success('统一社会信用代码已复制'))
+      .catch(() => fallbackCopy(code))
+  } else {
+    fallbackCopy(code)
+  }
+}
+
+const fallbackCopy = (text) => {
+  try {
+    const input = document.createElement('input')
+    input.value = text
+    document.body.appendChild(input)
+    input.select()
+    document.execCommand('copy')
+    document.body.removeChild(input)
+    ElMessage.success('统一社会信用代码已复制')
+  } catch (e) {
+    ElMessage.error('复制失败，请手动选择复制')
+  }
+}
+
 const analysis = computed(() => {
   if (!company.value) return null
   return analyzeCompany(company.value)
+})
+
+const basicInfo = computed(() => {
+  const c = company.value || {}
+  const raw = c.rawData || {}
+  const raw2 = c.rawData2 || {}
+
+  const companyFullName = c.companyFullName || raw.companyFullName || raw.compFullName || raw2.companyFullName || ''
+  const industry = c.industry || raw.industry || raw.companyIndustry || raw.compIndustry || raw2.industry || ''
+  const scale = c.scale || raw.scale || raw.companyScale || raw.compScale || raw2.scale || ''
+  const stage = c.stage || raw.stage || raw.companyStage || raw.compStage || raw2.stage || ''
+  const companyType = c.companyType || raw.companyType || raw.compKindName || raw2.companyType || ''
+  const creditCode = c.creditCode || raw.creditCode || raw.unifiedSocialCreditCode || raw2.creditCode || ''
+
+  const address = raw.companyAddress || raw.address || raw.businessAddress || raw2.companyAddress || raw2.address || ''
+  const legalPerson = raw.legalPerson || raw.representative || raw.businessLicense?.legalPerson || raw2.legalPerson || ''
+  const registeredCapital = raw.registeredCapital || raw.businessLicense?.registeredCapital || raw2.registeredCapital || ''
+  const establishmentDate = raw.establishmentDate || raw.businessLicense?.startDate || raw2.establishmentDate || ''
+
+  const description = raw.companyDesc || raw.intro || raw.description || raw.companyIntro || raw2.companyDesc || raw2.intro || ''
+
+  let welfare = []
+  if (Array.isArray(c.welfareList) && c.welfareList.length > 0) {
+    welfare = c.welfareList
+  } else if (Array.isArray(raw.welfare) && raw.welfare.length > 0) {
+    welfare = raw.welfare
+  } else if (Array.isArray(raw.welfareList) && raw.welfareList.length > 0) {
+    welfare = raw.welfareList
+  } else if (Array.isArray(raw2.welfareList) && raw2.welfareList.length > 0) {
+    welfare = raw2.welfareList
+  }
+
+  const hasAnyBasicInfo = !!(
+    creditCode ||
+    companyFullName ||
+    industry ||
+    scale ||
+    stage ||
+    companyType ||
+    address ||
+    legalPerson ||
+    registeredCapital ||
+    establishmentDate ||
+    description ||
+    welfare.length
+  )
+
+  return {
+    hasAnyBasicInfo,
+    companyFullName,
+    industry,
+    scale,
+    stage,
+    companyType,
+    creditCode,
+    address,
+    legalPerson,
+    registeredCapital,
+    establishmentDate,
+    description,
+    welfare
+  }
 })
 
 const heatLevel = computed(() => {
@@ -280,10 +511,16 @@ const expDistOption = computed(() => {
 </script>
 
 <style scoped>
+:deep(.el-dialog__body) {
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 16px 20px 24px 20px;
+}
+
 .analytics-container {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
 }
 
 .company-header-hero {
@@ -302,11 +539,24 @@ const expDistOption = computed(() => {
   gap: 8px;
 }
 
+.company-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .company-main-title {
   margin: 0;
   font-size: 20px;
   font-weight: 700;
   color: #0f172a;
+}
+
+.company-full-name-sub {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
 }
 
 .company-meta-tags {
@@ -348,6 +598,176 @@ const expDistOption = computed(() => {
   font-size: 11px;
   color: #64748b;
   margin-top: 2px;
+}
+
+/* 企业基础档案卡片 */
+.basic-profile-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.profile-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 10px;
+}
+
+.profile-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.profile-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+}
+
+.profile-sub-title {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.profile-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 10px 16px;
+}
+
+.profile-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #f8fafc;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #f1f5f9;
+}
+
+.profile-info-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.item-label {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.item-value {
+  font-size: 13px;
+  color: #1e293b;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.item-value-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.code-font {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  font-size: 13px;
+  color: #0f172a;
+  letter-spacing: 0.5px;
+}
+
+.copy-code-btn {
+  padding: 0 4px;
+  height: 20px;
+  font-size: 11px;
+}
+
+.profile-welfare-block {
+  background: #f0fdf4;
+  border: 1px solid #dcfce7;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 12px;
+}
+
+.welfare-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #166534;
+  margin-bottom: 8px;
+}
+
+.welfare-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.welfare-pill {
+  border-radius: 4px;
+}
+
+.profile-desc-block {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 12px;
+}
+
+.desc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.desc-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.desc-content {
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.desc-content.is-collapsed {
+  max-height: 80px;
+  overflow: hidden;
+  position: relative;
+  mask-image: linear-gradient(180deg, #000 60%, transparent);
+}
+
+/* 分界标题 */
+.section-divider-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 4px 2px;
+}
+
+.divider-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.divider-sub {
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 /* KPI Matrix */
