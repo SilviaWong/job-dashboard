@@ -22,7 +22,7 @@ import { cleanCompanyName, type CompanyProcessor, extractCompanyMetadata } from 
 export const process51JobCompany: CompanyProcessor = async (company, platform, prisma) => {
 
   // =========================================================================
-  // 第一步：字段规范化提取（企业名称、全称、加密企业ID）
+  // 第一步：字段规范化提取（企业名称、企业全称、企业ID）
   // =========================================================================
   const coInfo = company.coinfo || company
 
@@ -35,7 +35,7 @@ export const process51JobCompany: CompanyProcessor = async (company, platform, p
   cFullName = cleanCompanyName(cFullName)
 
   // 统一平台标识为中文“前程无忧”或传入的平台标识
-  const standardizedPlatform = (platform === '51job' || platform === '前程无忧') ? '前程无忧' : platform
+  const standardizedPlatform = (platform === '51job' || platform === '前程无忧') ? '51job' : platform
   const rawData = company.rawData || coInfo || company
   const stringifiedData = JSON.stringify(rawData)
   const createdAt = new Date()

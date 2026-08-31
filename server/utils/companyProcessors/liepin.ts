@@ -28,11 +28,10 @@ export const processLiepinCompany: CompanyProcessor = async (company, platform, 
   // =========================================================================
   let cName = company.compName || company['公司名称'] || company.companyName || company['公司简称'] || ''
   let cFullName = company.compFullName || company['公司全称'] || company.companyFullName || cName || ''
-  let companyId = company.compId || company['公司ID'] || company.companyId || ''
+  const companyId = company.compId || company['公司ID'] || company.companyId || ''
 
   cName = cleanCompanyName(cName)
   cFullName = cleanCompanyName(cFullName)
-  companyId = String(companyId).trim()
 
   // 统一平台标识为中文“猎聘”
   const standardizedPlatform = (platform === 'liepin' || platform === '猎聘') ? '猎聘' : platform
@@ -193,18 +192,19 @@ export const processLiepinCompany: CompanyProcessor = async (company, platform, 
       orConditions.push({ companyName: cName })
     }
 
-    if (orConditions.length > 0) {
-      await prisma.job.updateMany({
-        where: {
-          platform: standardizedPlatform,
-          OR: orConditions
-        },
-        data: {
-          companyFullName: cFullName,
-          updatedAt: updatedAt
-        }
-      })
-    }
+    // 暂时不更新到job表里的公司名称了，直接在职位详情页动态获取了，这里是针对猎聘平台
+    // if (orConditions.length > 0) {
+    //   await prisma.job.updateMany({
+    //     where: {
+    //       platform: standardizedPlatform,
+    //       OR: orConditions
+    //     },
+    //     data: {
+    //       companyFullName: cFullName,
+    //       updatedAt: updatedAt
+    //     }
+    //   })
+    // }
   }
 }
 

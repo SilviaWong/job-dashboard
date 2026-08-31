@@ -22,20 +22,22 @@ import { cleanCompanyName, type CompanyProcessor, extractCompanyMetadata } from 
 export const processZhilianCompany: CompanyProcessor = async (company, platform, prisma) => {
 
   // =========================================================================
-  // 第一步：字段规范化提取（工商注册名、企业名称、公司ID）
+  // 第一步：字段规范化提取（公司名称、公司全称、公司ID）
   // =========================================================================
   const bussinessInfo = company.businessInformation?.businessInformationData || {}
 
   // 优先取工商注册名 registeredName，其次取接口返回的 companyName / name
   let cName = bussinessInfo.registeredName || company.companyName || company.name || ''
   let cFullName = bussinessInfo.registeredName || company.companyName || company.name || cName || ''
-  let companyId = company.companyNumber || company.compId || company.companyId || ''
+  const companyId = company.companyNumber || company.compId || company.companyId || ''
 
   // 统一清洗：解码 Unicode、替换中文括号为英文括号、去除所有空格
   cName = cleanCompanyName(cName)
   cFullName = cleanCompanyName(cFullName)
-  companyId = String(companyId).trim()
+  // companyId = String(companyId).trim()
 
+  // 统一平台标识为中文“智联招聘”
+  const standardizedPlatform = platform === 'zhilian' ? '智联招聘' : platform
   const rawData = company.rawData || company
   const stringifiedData = JSON.stringify(rawData)
   const createdAt = new Date()
@@ -54,14 +56,14 @@ export const processZhilianCompany: CompanyProcessor = async (company, platform,
   // 2.1 优先通过公司ID精确查找
   if (companyId) {
     existingCompany = await prisma.company.findFirst({
-      where: { companyId: String(companyId), sourcePlatform: platform }
+      where: { companyId: String(companyId), sourcePlatform: standardizedPlatform }
     })
   }
 
   // 2.2 若按ID未找到，则通过公司名称查找匹配
   if (!existingCompany && cName) {
     existingCompany = await prisma.company.findFirst({
-      where: { companyName: cName, sourcePlatform: platform }
+      where: { companyName: cName, sourcePlatform: standardizedPlatform }
     })
   }
 
@@ -99,7 +101,7 @@ export const processZhilianCompany: CompanyProcessor = async (company, platform,
         data: {
           companyName: cName,
           companyFullName: cFullName,
-          sourcePlatform: platform,
+          sourcePlatform: standardizedPlatform,
           companyId: companyId,
           createdAt: createdAt,
           updatedAt: updatedAt,
@@ -117,7 +119,7 @@ export const processZhilianCompany: CompanyProcessor = async (company, platform,
       // 处理并发写入时的唯一索引冲突异常（P2002）
       if (createErr.code === 'P2002') {
         const newlyCreated = await prisma.company.findFirst({
-          where: { companyName: cName, sourcePlatform: platform }
+          where: { companyName: cName, sourcePlatform: standardizedPlatform }
         })
         if (newlyCreated) {
           await prisma.company.update({
@@ -155,18 +157,19 @@ export const processZhilianCompany: CompanyProcessor = async (company, platform,
       orConditions.push({ companyName: cName })
     }
 
-    if (orConditions.length > 0) {
-      await prisma.job.updateMany({
-        where: {
-          platform: platform,
-          OR: orConditions
-        },
-        data: {
-          companyFullName: cFullName,
-          updatedAt: updatedAt
-        }
-      })
-    }
+    // 暂时不更新到job表里的公司名称了，直接在职位详情页动态获取了，这里是针对智联平台
+    // if (orConditions.length > 0) {
+    //   await prisma.job.updateMany({
+    //     where: {
+    //       platform: standardizedPlatform,
+    //       OR: orConditions
+    //     },
+    //     data: {
+    //       companyFullName: cFullName,
+    //       updatedAt: updatedAt
+    //     }
+    //   })
+    // }
   }
 }
 

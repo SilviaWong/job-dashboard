@@ -22,12 +22,11 @@ import { cleanCompanyName, type CompanyProcessor, extractCompanyMetadata } from 
 export const processBossCompany: CompanyProcessor = async (company, platform, prisma) => {
 
   // =========================================================================
-  // 第一步：字段规范化提取（品牌简称、企业全称、加密企业ID）
+  // 第一步：字段规范化提取（品牌简称、企业全称、企业ID）
   // =========================================================================
   let cName = company['公司名称'] || company.brandName || company['公司全称'] || company.companyName || ''
   let cFullName = company['公司全称'] || company.companyFullName || cName
   const companyId = company['公司ID'] || company.encryptBrandId || company.companyId || ''
-  const rawData = company.rawData || company
 
   // 统一清洗：解码 Unicode、替换中文括号为英文括号、去除所有空格
   cName = cleanCompanyName(cName)
@@ -35,11 +34,13 @@ export const processBossCompany: CompanyProcessor = async (company, platform, pr
 
   // 统一平台标识为中文“Boss直聘”
   const standardizedPlatform = platform === 'boss' ? 'Boss直聘' : platform
-  const finalCompanyName = cFullName || cName
+  const rawData = company.rawData || company
+  const stringifiedData = JSON.stringify(rawData)
+  const createdAt = new Date()
   const updatedAt = new Date()
 
   // 若没有有效的公司名称及ID，则视为无效数据，直接跳过
-  if (!finalCompanyName && !companyId) {
+  if (!cName && !companyId) {
     return
   }
 
@@ -56,15 +57,12 @@ export const processBossCompany: CompanyProcessor = async (company, platform, pr
   }
 
   // 2.2 若按ID未找到，则通过公司名称查找匹配
-  if (!existingCompany && finalCompanyName) {
+  if (!existingCompany && cName) {
     existingCompany = await prisma.company.findFirst({
-      where: { companyName: finalCompanyName, sourcePlatform: standardizedPlatform }
+      where: { companyName: cName, sourcePlatform: standardizedPlatform }
     })
   }
 
-  const stringifiedData = JSON.stringify(rawData)
-  const validCompanyId = companyId ? String(companyId) : undefined
-  const validFullName = cFullName || undefined
 
   // =========================================================================
   // 第三步：执行更新或插入逻辑（统一存入 rawData2 字段）
@@ -78,8 +76,8 @@ export const processBossCompany: CompanyProcessor = async (company, platform, pr
       where: { id: existingCompany.id },
       data: {
         rawData2: stringifiedData,
-        companyId: validCompanyId || existingCompany.companyId,
-        companyFullName: validFullName || existingCompany.companyFullName,
+        companyId: companyId || existingCompany.companyId,
+        companyFullName: cFullName || existingCompany.companyFullName,
         updatedAt: updatedAt,
         ...(meta.industry ? { industry: meta.industry } : {}),
         ...(meta.scale ? { scale: meta.scale } : {}),
@@ -90,7 +88,7 @@ export const processBossCompany: CompanyProcessor = async (company, platform, pr
         ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
       }
     })
-  } else if (finalCompanyName) {
+  } else if (cName) {
     // -----------------------------------------------------------------------
     // 分支 B：公司记录不存在 -> 执行 CREATE 新增
     // -----------------------------------------------------------------------
@@ -98,11 +96,11 @@ export const processBossCompany: CompanyProcessor = async (company, platform, pr
     try {
       await prisma.company.create({
         data: {
-          companyName: finalCompanyName,
-          companyFullName: validFullName,
+          companyName: cName,
+          companyFullName: cFullName,
           sourcePlatform: standardizedPlatform,
-          companyId: validCompanyId,
-          createdAt: new Date(),
+          companyId: companyId,
+          createdAt: createdAt,
           updatedAt: updatedAt,
           rawData2: stringifiedData,
           industry: meta.industry,
@@ -118,15 +116,15 @@ export const processBossCompany: CompanyProcessor = async (company, platform, pr
       // 处理并发写入时的唯一索引冲突异常（P2002）
       if (createErr.code === 'P2002') {
         const newlyCreated = await prisma.company.findFirst({
-          where: { companyName: finalCompanyName, sourcePlatform: standardizedPlatform }
+          where: { companyName: cName, sourcePlatform: standardizedPlatform }
         })
         if (newlyCreated) {
           await prisma.company.update({
             where: { id: newlyCreated.id },
             data: {
               rawData2: stringifiedData,
-              companyId: validCompanyId || newlyCreated.companyId,
-              companyFullName: validFullName || newlyCreated.companyFullName,
+              companyId: companyId || newlyCreated.companyId,
+              companyFullName: cFullName || newlyCreated.companyFullName,
               updatedAt: updatedAt,
               ...(meta.industry ? { industry: meta.industry } : {}),
               ...(meta.scale ? { scale: meta.scale } : {}),
@@ -147,13 +145,13 @@ export const processBossCompany: CompanyProcessor = async (company, platform, pr
   // =========================================================================
   // 第四步：双向同步 Job 表中的职位企业全称（companyFullName）
   // =========================================================================
-  if (validFullName) {
+  if (cFullName) {
     const orConditions: any[] = []
-    if (validCompanyId) {
-      orConditions.push({ companyId: String(validCompanyId) })
+    if (companyId) {
+      orConditions.push({ companyId: String(companyId) })
     }
-    if (finalCompanyName) {
-      orConditions.push({ companyName: finalCompanyName })
+    if (cName) {
+      orConditions.push({ companyName: cName })
     }
 
     // 暂时不更新到job表里的公司名称了，直接在职位详情页动态获取了，这里是针对boss直聘平台

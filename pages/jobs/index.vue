@@ -51,13 +51,6 @@
                 <el-option label="🔥 活跃 (30天内)" value="new_30d"></el-option>
                 <el-option label="⚠️ 常驻 (>60天)" value="stale_60d"></el-option>
               </el-select>
-              <el-select v-model="hrActiveFilter" placeholder="HR活跃度" style="width: 175px" @change="() => fetchJobs(false)">
-                <el-option label="全部HR状态" value="all"></el-option>
-                <el-option label="🟢 真实活跃 (7天内同步)" value="active"></el-option>
-                <el-option label="🟡 一般活跃 (30天内)" value="moderate"></el-option>
-                <el-option label="💤 僵尸岗位 (长期未活)" value="zombie"></el-option>
-                <el-option label="⏳ 状态已失效 (>7天未更)" value="stale"></el-option>
-              </el-select>
               <el-select v-model="headhunterFilter" placeholder="招聘来源" style="width: 145px" @change="() => fetchJobs(false)">
                 <el-option label="全部来源" value="all"></el-option>
                 <el-option label="🏢 仅看直招" value="direct"></el-option>
@@ -178,38 +171,6 @@
                 ⚠️ 常驻职位 (&gt;60天)
               </span>
 
-              <!-- HR 活跃度标记 (结合抓取时间的时效衰减) -->
-              <template v-if="job.hrActiveStatus">
-                <span 
-                  v-if="getJobHr(job).level === 'zombie'" 
-                  class="tag-item tag-hr-zombie"
-                  :title="getJobHr(job).tooltip"
-                >
-                  {{ getJobHr(job).badgeText }}
-                </span>
-                <span 
-                  v-else-if="getJobHr(job).level === 'active'" 
-                  class="tag-item tag-hr-active"
-                  :title="getJobHr(job).tooltip"
-                >
-                  {{ getJobHr(job).badgeText }}
-                </span>
-                <span 
-                  v-else-if="getJobHr(job).level === 'moderate'" 
-                  class="tag-item tag-hr-moderate"
-                  :title="getJobHr(job).tooltip"
-                >
-                  {{ getJobHr(job).badgeText }}
-                </span>
-                <span 
-                  v-else-if="getJobHr(job).level === 'stale'" 
-                  class="tag-item tag-hr-stale"
-                  :title="getJobHr(job).tooltip"
-                >
-                  {{ getJobHr(job).badgeText }}
-                </span>
-              </template>
-
               <template v-if="job.isHidden && job.tags && Array.isArray(job.tags) && job.tags.length > 0">
                 <el-tag v-for="(t, idx) in job.tags" :key="'reason-'+idx" type="info" size="small" effect="dark" style="border: none;">
                   🚫 {{ t }}
@@ -238,15 +199,6 @@
             <div class="job-meta">
               <span v-if="job.firstSeen" class="meta-item" :title="'首次收录: ' + job.firstSeen">发现: {{ formatTimeAgo(job.firstSeen) }}</span>
               <span v-if="job.lastSeen && job.lastSeen !== job.firstSeen" class="meta-item" :title="'最近活跃: ' + job.lastSeen">活跃: {{ formatTimeAgo(job.lastSeen) }}</span>
-              <span 
-                v-if="job.hrActiveStatus" 
-                class="meta-item" 
-                :title="getJobHr(job).tooltip"
-                :style="{ 
-                  color: getJobHr(job).level === 'zombie' ? '#ef4444' : (getJobHr(job).level === 'active' ? '#10b981' : (getJobHr(job).level === 'stale' ? '#94a3b8' : '#64748b')), 
-                  fontWeight: getJobHr(job).level === 'zombie' ? '600' : 'normal' 
-                }"
-              >HR: {{ getJobHr(job).displayStatus }}</span>
               <span v-if="job.platformPublishTime || job.normalizedData?.publishDate" class="meta-item">首发: {{ formatDisplayDate(job.platformPublishTime || job.normalizedData?.publishDate) }}</span>
               <span v-if="job.platformUpdateTime || job.normalizedData?.updateDate" class="meta-item">修改: {{ formatDisplayDate(job.platformUpdateTime || job.normalizedData?.updateDate) }}</span>
               <span class="meta-item">状态: {{ job.normalizedData?.jobStatus || job.status || '-' }}</span>
@@ -422,7 +374,6 @@ const keywordFilter = ref('')
 const aiDiagnosisFilter = ref('all')
 const salaryFilter = ref('all')
 const lifecycleFilter = ref('all')
-const hrActiveFilter = ref('all')
 
 const jobDetailDrawerRef = ref(null)
 
@@ -448,9 +399,6 @@ const isStaleJob = (job) => {
   return (Date.now() - t) >= 60 * 24 * 60 * 60 * 1000
 }
 
-const getJobHr = (job) => {
-  return getEffectiveHrActive(job)
-}
 
 const formatTimeAgo = (dateStr) => {
   if (!dateStr) return ''
@@ -498,7 +446,6 @@ const fetchJobs = async (isLoadMore = false) => {
       aiDiagnosisFilter: aiDiagnosisFilter.value,
       salaryFilter: salaryFilter.value,
       lifecycleFilter: lifecycleFilter.value,
-      hrActiveFilter: hrActiveFilter.value,
     })
     const res = await $fetch(`/api/jobs?${params.toString()}`)
     if (res && res.success && Array.isArray(res.data)) {
@@ -1393,32 +1340,6 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
-.tag-item.tag-hr-zombie {
-  background-color: #fee2e2;
-  color: #b91c1c;
-  border-color: #fca5a5;
-  font-weight: 600;
-}
-
-.tag-item.tag-hr-active {
-  background-color: #f0f9eb;
-  color: #67c23a;
-  border-color: #b3e19d;
-  font-weight: 500;
-}
-
-.tag-item.tag-hr-moderate {
-  background-color: #f4f4f5;
-  color: #909399;
-  border-color: #d3d4d6;
-}
-
-.tag-item.tag-hr-stale {
-  background-color: #f8fafc;
-  color: #94a3b8;
-  border-color: #e2e8f0;
-  opacity: 0.85;
-}
 
 .job-meta {
   display: flex;

@@ -33,39 +33,7 @@
               <el-tag v-if="job.normalizedData?.isHeadhunter" effect="light" size="large" class="badge-tag" style="background-color: #fce4ec; color: #c2185b; border: 1px solid #f8bbd0;">
                 <el-icon><UserCheck /></el-icon>&nbsp;猎头/代招岗位
               </el-tag>
-              <el-tag v-if="effectiveHr.level === 'zombie'" effect="dark" type="danger" size="large" class="badge-tag" style="background-color: #ef4444; border-color: #ef4444;" :title="effectiveHr.tooltip">
-                {{ effectiveHr.badgeText }}
-              </el-tag>
-              <el-tag v-else-if="effectiveHr.level === 'active'" effect="light" type="success" size="large" class="badge-tag" :title="effectiveHr.tooltip">
-                {{ effectiveHr.badgeText }}
-              </el-tag>
-              <el-tag v-else-if="effectiveHr.level === 'moderate'" effect="light" type="info" size="large" class="badge-tag" :title="effectiveHr.tooltip">
-                {{ effectiveHr.badgeText }}
-              </el-tag>
-              <el-tag v-else-if="effectiveHr.level === 'stale'" effect="plain" type="info" size="large" class="badge-tag" style="color: #94a3b8; border-color: #cbd5e1;" :title="effectiveHr.tooltip">
-                {{ effectiveHr.badgeText }}
-              </el-tag>
             </div>
-
-            <!-- 僵尸岗位警示提示条 -->
-            <el-alert
-              v-if="effectiveHr.level === 'zombie'"
-              :title="effectiveHr.tooltip"
-              type="warning"
-              show-icon
-              :closable="false"
-              style="margin-bottom: 16px; border-radius: 8px;"
-            />
-
-            <!-- HR活跃状态失效提示条 -->
-            <el-alert
-              v-else-if="effectiveHr.level === 'stale'"
-              :title="effectiveHr.tooltip"
-              type="info"
-              show-icon
-              :closable="false"
-              style="margin-bottom: 16px; border-radius: 8px; background-color: #f8fafc; border: 1px solid #e2e8f0; color: #64748b;"
-            />
 
             <div class="section-title"><el-icon><BarChart /></el-icon> 岗位概览</div>
             <div class="stats-grid">
@@ -75,19 +43,6 @@
               <div class="stat-box"><span class="stat-label">招聘人员</span><span class="stat-value">{{ job.normalizedData?.hrName || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">招聘职位</span><span class="stat-value">{{ job.normalizedData?.hrPosition || '-' }}</span></div>
               <div class="stat-box" v-if="job.normalizedData?.hrCompanyName"><span class="stat-label">所属公司</span><span class="stat-value" :title="job.normalizedData.hrCompanyName">{{ job.normalizedData.hrCompanyName }}</span></div>
-              <div class="stat-box">
-                <span class="stat-label">HR活跃度</span>
-                <span 
-                  class="stat-value" 
-                  :title="effectiveHr.tooltip"
-                  :style="{ 
-                    color: effectiveHr.level === 'zombie' ? '#ef4444' : (effectiveHr.level === 'active' ? '#10b981' : (effectiveHr.level === 'stale' ? '#94a3b8' : '#64748b')), 
-                    fontWeight: effectiveHr.level === 'zombie' ? '600' : 'normal' 
-                  }"
-                >
-                  {{ effectiveHr.displayStatus }}
-                </span>
-              </div>
               <div class="stat-box"><span class="stat-label">发布日期</span><span class="stat-value">{{ formatDrawerDate(job.platformPublishTime || job.normalizedData?.publishDate) }}</span></div>
               <div class="stat-box"><span class="stat-label">更新日期</span><span class="stat-value">{{ formatDrawerDate(job.platformUpdateTime || job.normalizedData?.updateDate) }}</span></div>
               <div class="stat-box"><span class="stat-label">首次收录</span><span class="stat-value">{{ formatDrawerDate(job.firstSeen) }}</span></div>
@@ -102,7 +57,7 @@
             </template>
 
             <div class="section-title"><el-icon><FileText /></el-icon> 岗位职责与要求</div>
-            <div class="job-desc" style="white-space: pre-wrap;">{{ formatDesc(job.normalizedData?.jobDesc) }}</div>
+            <div class="job-desc" style="white-space: pre-wrap;">{{ formatDesc(job.normalizedData?.jobDesc || job.jobDesc) }}</div>
           
             <template v-if="job.normalizedData?.skills?.length">
               <div class="section-title"><el-icon><Tags /></el-icon> 技能标签</div>
@@ -218,10 +173,6 @@ const job = ref(null)
 const marking = ref(false)
 const predicting = ref(false)
 const generatingGreeting = ref(false)
-
-const effectiveHr = computed(() => {
-  return getEffectiveHrActive(job.value)
-})
 
 const formatDrawerDate = (d) => {
   if (!d) return '-'
@@ -526,7 +477,7 @@ const formatAiAnalysis = (text) => {
 
 const getJobUrl = (jobData) => {
   if (!jobData) return ''
-  return jobData.normalizedData?.jobUrl || ''
+  return jobData.normalizedData?.jobUrl || jobData.jobUrl || jobData.url || ''
 }
 
 defineExpose({

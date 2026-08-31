@@ -304,6 +304,47 @@ export default defineEventHandler(async (event) => {
     const startIndex = (page - 1) * pageSize
     const paginatedArray = finalArray.slice(startIndex, startIndex + pageSize)
 
+    // 针对当前分页返回的企业下的职位，按需关联 job_detail_payloads 补充 jobDesc 和 jobUrl
+    const pagedJobRecordIds: string[] = []
+    for (const company of paginatedArray) {
+      if (Array.isArray(company.jobs)) {
+        for (const j of company.jobs) {
+          if (j.id) {
+            pagedJobRecordIds.push(j.id)
+          }
+        }
+      }
+    }
+
+    if (pagedJobRecordIds.length > 0) {
+      const payloads = await prisma.jobDetailPayload.findMany({
+        where: {
+          jobRecordId: { in: pagedJobRecordIds }
+        },
+        select: {
+          jobRecordId: true,
+          jobDesc: true,
+          jobUrl: true
+        }
+      })
+      const payloadMap = new Map(payloads.map(p => [p.jobRecordId, p]))
+      for (const company of paginatedArray) {
+        if (Array.isArray(company.jobs)) {
+          for (const j of company.jobs) {
+            const payload = payloadMap.get(j.id)
+            if (payload) {
+              if (j.normalizedData) {
+                j.normalizedData.jobDesc = payload.jobDesc || ''
+                j.normalizedData.jobUrl = payload.jobUrl || ''
+              }
+              j.jobUrl = payload.jobUrl || ''
+              j.jobDesc = payload.jobDesc || ''
+            }
+          }
+        }
+      }
+    }
+
     return {
       success: true,
       data: paginatedArray,
