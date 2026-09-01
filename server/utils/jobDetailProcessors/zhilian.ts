@@ -171,21 +171,21 @@ export async function processZhilianJobDetail(detail: any, rawPlatform: string, 
   // 第五步：联动更新 Company 企业表中的企业全称
   // =========================================================================
   const companyId = detail['公司ID'] || detail.companyId || detail.companyNumber || compInfo.companyNumber || detailedPosition.companyNumber || ''
-  if (companyId && companyFullName) {
-    const companies = await prisma.company.findMany({
-      where: { companyId: String(companyId), sourcePlatform: standardizedPlatform }
-    })
+  // if (companyId && companyFullName) {
+  //   const companies = await prisma.company.findMany({
+  //     where: { companyId: String(companyId), sourcePlatform: standardizedPlatform }
+  //   })
 
-    for (const company of companies) {
-      await prisma.company.update({
-        where: { id: company.id },
-        data: {
-          companyFullName: companyFullName,
-          updatedAt: updatedAt
-        }
-      })
-    }
-  }
+  //   for (const company of companies) {
+  //     await prisma.company.update({
+  //       where: { id: company.id },
+  //       data: {
+  //         companyFullName: companyFullName,
+  //         updatedAt: updatedAt
+  //       }
+  //     })
+  //   }
+  // }
 
   return result
 }

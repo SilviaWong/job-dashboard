@@ -22,7 +22,7 @@ import { cleanHtmlText } from '../jobNormalizer'
  * @param prisma Prisma 数据库客户端实例
  */
 export async function processBossJobDetail(detail: any, rawPlatform: string, prisma: ReturnType<typeof getPrisma>) {
-  
+
   // =========================================================================
   // 第一步：提取并校验关键字段（jobId、职位名、公司全称、招聘状态等）
   // =========================================================================
@@ -153,21 +153,21 @@ export async function processBossJobDetail(detail: any, rawPlatform: string, pri
   // 第五步：联动更新 Company 企业表中的企业全称
   // =========================================================================
   const companyId = detail['公司ID']
-  if (companyId && companyFullName) {
-    const companies = await prisma.company.findMany({
-      where: { companyId: String(companyId), sourcePlatform: 'Boss直聘' }
-    })
+  // if (companyId && companyFullName) {
+  //   const companies = await prisma.company.findMany({
+  //     where: { companyId: String(companyId), sourcePlatform: 'Boss直聘' }
+  //   })
 
-    for (const company of companies) {
-      await prisma.company.update({
-        where: { id: company.id },
-        data: {
-          companyFullName: companyFullName,
-          updatedAt: updatedAt
-        }
-      })
-    }
-  }
+  //   for (const company of companies) {
+  //     await prisma.company.update({
+  //       where: { id: company.id },
+  //       data: {
+  //         companyFullName: companyFullName,
+  //         updatedAt: updatedAt
+  //       }
+  //     })
+  //   }
+  // }
 
   return result
 }

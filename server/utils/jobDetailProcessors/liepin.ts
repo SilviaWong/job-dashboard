@@ -170,21 +170,21 @@ export async function processLiepinJobDetail(detail: any, rawPlatform: string, p
   // 第五步：联动更新 Company 企业表中的企业全称
   // =========================================================================
   const companyId = detail['公司ID'] || detail.companyId || detail.compId || compInfo.compId || compInfo.companyId || compInfo.link?.match(/\/company\/(\d+)/)?.[1] || jdJson.hiringOrganization?.sameAs?.match(/\/company\/(\d+)/)?.[1] || ''
-  if (companyId && companyFullName) {
-    const companies = await prisma.company.findMany({
-      where: { companyId: String(companyId), sourcePlatform: standardizedPlatform }
-    })
+  // if (companyId && companyFullName) {
+  //   const companies = await prisma.company.findMany({
+  //     where: { companyId: String(companyId), sourcePlatform: standardizedPlatform }
+  //   })
 
-    for (const company of companies) {
-      await prisma.company.update({
-        where: { id: company.id },
-        data: {
-          companyFullName: companyFullName,
-          updatedAt: updatedAt
-        }
-      })
-    }
-  }
+  //   for (const company of companies) {
+  //     await prisma.company.update({
+  //       where: { id: company.id },
+  //       data: {
+  //         companyFullName: companyFullName,
+  //         updatedAt: updatedAt
+  //       }
+  //     })
+  //   }
+  // }
 
   return result
 }

@@ -25,11 +25,15 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
   const hr = resolveJobHrActive(job, null, platform)
   const { structuredJobData, payloadData } = extractStructuredAndPayload(job, platform, stringifiedData)
 
+  // 对公司名称和公司全称进行中文括号转英文括号，以及去除空格的处理
+  const cleanName = cleanCompanyName(companyName)
+  const cleanFullName = cleanCompanyName(companyFullName)
+
   // 组装职位更新数据
   const updateData: any = {
     title: String(jobTitle),
-    companyName: String(companyName),
-    companyFullName: String(companyFullName),
+    companyName: String(cleanName),
+    companyFullName: String(cleanFullName),
     companyId: companyId ? String(companyId) : null,
     salary: String(salary),
     location: String(location),
@@ -47,8 +51,8 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
   const createData: any = {
     jobId: String(jobId),
     title: String(jobTitle),
-    companyName: String(companyName),
-    companyFullName: String(companyFullName),
+    companyName: String(cleanName),
+    companyFullName: String(cleanFullName),
     companyId: companyId ? String(companyId) : null,
     salary: String(salary),
     location: String(location),
@@ -69,8 +73,8 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
   // 组装公司的rowData字段的json数据
   const companyRawData = {
     companyId: companyId,
-    companyName: companyName,
-    companyFullName: companyFullName,
+    companyName: cleanName,
+    companyFullName: cleanFullName,
     sourcePlatform: '51job'
   }
 
@@ -116,23 +120,19 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
   await syncJobDetailPayload(prisma, savedJob.id, payloadData)
 
   if (isChanged) {
-    ;(savedJob as any).isChanged = true
-    ;(savedJob as any).changeDetail = {
-      jobId: String(jobId),
-      title: String(jobTitle),
-      companyName: String(cleanName),
-      platform: platform,
-      oldSalary: existingJob?.salary,
-      newSalary: String(salary),
-      reason: changeReason
-    }
+    ; (savedJob as any).isChanged = true
+      ; (savedJob as any).changeDetail = {
+        jobId: String(jobId),
+        title: String(jobTitle),
+        companyName: String(cleanName),
+        platform: platform,
+        oldSalary: existingJob?.salary,
+        newSalary: String(salary),
+        reason: changeReason
+      }
   }
 
   // 再保存公司数据
-  // 对公司名称和公司全称进行中文括号转英文括号，以及去除空格的处理
-  const cleanName = cleanCompanyName(companyName)
-  const cleanFullName = cleanCompanyName(companyFullName)
-
   if (cleanName || companyId) {
     //根据公司id或者公司名称去查找，先通过id查找，如果没有则通过名称查找，如果有的话更新，没有的话创建
     //因为抓取的数据存在公司id为空的情况，所以如果companyId为空的话，就只有通过公司名称查找

@@ -26,7 +26,7 @@ import { cleanHtmlText } from '../jobNormalizer'
  * @param prisma Prisma 数据库客户端实例
  */
 export async function process51JobDetail(detail: any, rawPlatform: string, prisma: ReturnType<typeof getPrisma>) {
-  
+
   // =========================================================================
   // 第一步：提取并校验关键字段（jobId、职位名、公司全称、招聘状态等）
   // =========================================================================
@@ -179,45 +179,45 @@ export async function process51JobDetail(detail: any, rawPlatform: string, prism
   // =========================================================================
   // 第五步：联动更新 Company 企业表中的企业全称
   // =========================================================================
-  if (companyFullName) {
-    const orConditions: any[] = []
-    // 51job Company 表中的 companyId 统一存的是 encryCompanyId (如 AWRUN146BT4CYAdmUTE)
-    if (encryCompanyId) {
-      orConditions.push({ companyId: String(encryCompanyId) })
-    }
-    if (numericCompanyId) {
-      orConditions.push({ companyId: String(numericCompanyId) })
-    }
-    if (companyName) {
-      orConditions.push({ companyName: companyName })
-    }
-    if (detailJobInfo.coName) {
-      const cleanedCoName = cleanCompanyName(detailJobInfo.coName)
-      if (cleanedCoName && cleanedCoName !== companyName) {
-        orConditions.push({ companyName: cleanedCoName })
-      }
-    }
+  // if (companyFullName) {
+  //   const orConditions: any[] = []
+  //   // 51job Company 表中的 companyId 统一存的是 encryCompanyId (如 AWRUN146BT4CYAdmUTE)
+  //   if (encryCompanyId) {
+  //     orConditions.push({ companyId: String(encryCompanyId) })
+  //   }
+  //   if (numericCompanyId) {
+  //     orConditions.push({ companyId: String(numericCompanyId) })
+  //   }
+  //   if (companyName) {
+  //     orConditions.push({ companyName: companyName })
+  //   }
+  //   if (detailJobInfo.coName) {
+  //     const cleanedCoName = cleanCompanyName(detailJobInfo.coName)
+  //     if (cleanedCoName && cleanedCoName !== companyName) {
+  //       orConditions.push({ companyName: cleanedCoName })
+  //     }
+  //   }
 
-    if (orConditions.length > 0) {
-      const companies = await prisma.company.findMany({
-        where: {
-          sourcePlatform: standardizedPlatform,
-          OR: orConditions
-        }
-      })
+  //   if (orConditions.length > 0) {
+  //     const companies = await prisma.company.findMany({
+  //       where: {
+  //         sourcePlatform: standardizedPlatform,
+  //         OR: orConditions
+  //       }
+  //     })
 
-      for (const company of companies) {
-        await prisma.company.update({
-          where: { id: company.id },
-          data: {
-            companyFullName: companyFullName,
-            ...(encryCompanyId && (!company.companyId || company.companyId === String(numericCompanyId)) ? { companyId: String(encryCompanyId) } : {}),
-            updatedAt: updatedAt
-          }
-        })
-      }
-    }
-  }
+  //     for (const company of companies) {
+  //       await prisma.company.update({
+  //         where: { id: company.id },
+  //         data: {
+  //           companyFullName: companyFullName,
+  //           ...(encryCompanyId && (!company.companyId || company.companyId === String(numericCompanyId)) ? { companyId: String(encryCompanyId) } : {}),
+  //           updatedAt: updatedAt
+  //         }
+  //       })
+  //     }
+  //   }
+  // }
 
   return result
 }
