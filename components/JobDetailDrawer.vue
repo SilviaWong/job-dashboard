@@ -16,7 +16,10 @@
                 <el-icon><Globe /></el-icon>&nbsp;{{ job.platform }}
               </el-tag>
               <span class="breadcrumb-sep">/</span>
-              <span class="breadcrumb-title">职位详情</span>
+              <span class="breadcrumb-title" :title="job.salary ? `${job.title} ${job.salary}` : job.title">
+                <span class="breadcrumb-job-name">{{ job.title || '职位详情' }}</span>
+                <span v-if="job.salary" class="breadcrumb-salary">{{ job.salary }}</span>
+              </span>
               <el-tag v-if="isJobExpired" size="small" type="danger" effect="light" class="status-mini-tag">
                 已失效
               </el-tag>
@@ -578,8 +581,26 @@ defineExpose({
 }
 
 .breadcrumb-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   font-weight: 500;
-  color: #475569;
+  color: #334155;
+}
+
+.breadcrumb-job-name {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breadcrumb-salary {
+  color: #0088fb;
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .status-mini-tag {
