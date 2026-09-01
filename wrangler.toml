@@ -1,5 +1,6 @@
 name = "job-dashboard"
 compatibility_date = "2026-08-07"
+compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "dist"
 
 [[d1_databases]]
