@@ -1,6 +1,6 @@
 import { getPrisma } from '#prisma'
 import { JobStatus } from '../../../utils/enums'
-import { cleanCompanyName } from '../companyProcessors/types'
+import { cleanCompanyName, upsertCompanyFromDetail } from '../companyProcessors/types'
 import { cleanHtmlText } from '../jobNormalizer'
 
 /**
@@ -168,24 +168,22 @@ export async function processZhilianJobDetail(detail: any, rawPlatform: string, 
   }
 
   // =========================================================================
-  // 第五步：联动更新 Company 企业表中的企业全称
+  // 第五步：联动更新 Company 企业表（存储 rawData3 与补齐结构化字段）
   // =========================================================================
   const companyId = detail['公司ID'] || detail.companyId || detail.companyNumber || compInfo.companyNumber || detailedPosition.companyNumber || ''
-  // if (companyId && companyFullName) {
-  //   const companies = await prisma.company.findMany({
-  //     where: { companyId: String(companyId), sourcePlatform: standardizedPlatform }
-  //   })
-
-  //   for (const company of companies) {
-  //     await prisma.company.update({
-  //       where: { id: company.id },
-  //       data: {
-  //         companyFullName: companyFullName,
-  //         updatedAt: updatedAt
-  //       }
-  //     })
-  //   }
-  // }
+  if (companyName || companyFullName || companyId) {
+    try {
+      await upsertCompanyFromDetail(prisma, {
+        companyName: companyName,
+        companyFullName: companyFullName,
+        companyId: companyId ? String(companyId) : null,
+        platform: standardizedPlatform,
+        detailRaw: detail
+      })
+    } catch (e) {
+      console.error('[Zhilian Job Detail Processor] 同步更新 Company 异常:', e)
+    }
+  }
 
   return result
 }

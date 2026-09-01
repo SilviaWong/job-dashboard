@@ -18,6 +18,7 @@ export default defineEventHandler(async (event) => {
   const salaryFilter = query.salaryFilter as string || 'all'
   const lifecycleFilter = query.lifecycleFilter as string || 'all'
   const hrActiveFilter = query.hrActiveFilter as string || 'all'
+  const sortBy = query.sortBy as string || 'updatedAt'
 
   const page = parseInt(query.page as string) || 1
   const pageSize = parseInt(query.pageSize as string) || 20
@@ -74,15 +75,36 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // 职位生命周期过滤 (新发7天内 / 活跃30天内 / 常驻大于60天)
+    // 职位生命周期过滤 (新发7天内 / 活跃30天内 / 3天内有刷新 / 常驻大于60天)
     if (lifecycleFilter !== 'all') {
       const now = new Date()
       if (lifecycleFilter === 'new_7d') {
         const date7dAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-        andConditions.push({ firstSeen: { gte: date7dAgo } })
+        const str7dAgo = date7dAgo.toISOString().slice(0, 10)
+        andConditions.push({
+          OR: [
+            { firstSeen: { gte: date7dAgo } },
+            { platformPublishTime: { gte: str7dAgo } }
+          ]
+        })
       } else if (lifecycleFilter === 'new_30d') {
         const date30dAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-        andConditions.push({ firstSeen: { gte: date30dAgo } })
+        const str30dAgo = date30dAgo.toISOString().slice(0, 10)
+        andConditions.push({
+          OR: [
+            { firstSeen: { gte: date30dAgo } },
+            { platformPublishTime: { gte: str30dAgo } }
+          ]
+        })
+      } else if (lifecycleFilter === 'active_3d') {
+        const date3dAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)
+        const str3dAgo = date3dAgo.toISOString().slice(0, 10)
+        andConditions.push({
+          OR: [
+            { lastSeen: { gte: date3dAgo } },
+            { platformUpdateTime: { gte: str3dAgo } }
+          ]
+        })
       } else if (lifecycleFilter === 'stale_60d') {
         const date60dAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
         andConditions.push({ firstSeen: { lte: date60dAgo } })
@@ -167,6 +189,28 @@ export default defineEventHandler(async (event) => {
 
     let totalJobs = 0
     let jobs: any[] = []
+
+    // 构建排序规则
+    let orderBy: any = { updatedAt: 'desc' }
+    if (sortBy === 'firstSeen') {
+      orderBy = { firstSeen: 'desc' }
+    } else if (sortBy === 'publishTime') {
+      orderBy = [
+        { platformPublishTime: 'desc' },
+        { firstSeen: 'desc' }
+      ]
+    } else if (sortBy === 'updateTime') {
+      orderBy = [
+        { platformUpdateTime: 'desc' },
+        { lastSeen: 'desc' }
+      ]
+    } else if (sortBy === 'salaryDesc') {
+      orderBy = { salaryAvg: 'desc' }
+    } else if (sortBy === 'salaryAsc') {
+      orderBy = { salaryAvg: 'asc' }
+    } else {
+      orderBy = { updatedAt: 'desc' }
+    }
     
     // 仅在勾选了依赖内存集合的条件时采用轻量级两阶段查询；常规查询（含薪资范围）100% 走纯数据库原生分页
     if (aiDiagnosisFilter !== 'all' || filterMissingBossDetail) {
@@ -178,7 +222,7 @@ export default defineEventHandler(async (event) => {
           platform: true,
           updatedAt: true
         },
-        orderBy: { updatedAt: 'desc' }
+        orderBy: orderBy
       })
       
       const filteredStubs = allJobStubs.filter(job => {
@@ -207,7 +251,7 @@ export default defineEventHandler(async (event) => {
       if (pagedIds.length > 0) {
         jobs = await prisma.job.findMany({
           where: { id: { in: pagedIds } },
-          orderBy: { updatedAt: 'desc' },
+          orderBy: orderBy,
           include: {
             detailPayload: {
               select: {
@@ -227,9 +271,7 @@ export default defineEventHandler(async (event) => {
 
       jobs = await prisma.job.findMany({
         where: whereClause,
-        orderBy: {
-          updatedAt: 'desc'
-        },
+        orderBy: orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {

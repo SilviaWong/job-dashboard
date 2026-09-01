@@ -59,10 +59,45 @@
               <div class="stat-box"><span class="stat-label">招聘人员</span><span class="stat-value">{{ job.normalizedData?.hrName || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">招聘职位</span><span class="stat-value">{{ job.normalizedData?.hrPosition || '-' }}</span></div>
               <div class="stat-box" v-if="job.normalizedData?.hrCompanyName"><span class="stat-label">所属公司</span><span class="stat-value" :title="job.normalizedData.hrCompanyName">{{ job.normalizedData.hrCompanyName }}</span></div>
-              <div class="stat-box"><span class="stat-label">发布日期</span><span class="stat-value">{{ formatDrawerDate(job.platformPublishTime || job.normalizedData?.publishDate) }}</span></div>
-              <div class="stat-box"><span class="stat-label">更新日期</span><span class="stat-value">{{ formatDrawerDate(job.platformUpdateTime || job.normalizedData?.updateDate) }}</span></div>
-              <div class="stat-box"><span class="stat-label">首次收录</span><span class="stat-value">{{ formatDrawerDate(job.firstSeen) }}</span></div>
-              <div class="stat-box"><span class="stat-label">最近活跃</span><span class="stat-value">{{ formatDrawerDate(job.lastSeen) }}</span></div>
+            </div>
+
+            <!-- 时效与生命周期画像 -->
+            <div class="section-title" v-if="jobDiagnosis"><el-icon><Clock /></el-icon> 时效与生命周期画像</div>
+            <div class="lifecycle-panel" v-if="jobDiagnosis">
+              <div class="lifecycle-badge-row">
+                <div 
+                  class="lifecycle-status-pill"
+                  :style="{ 
+                    color: jobDiagnosis.badgeColor, 
+                    backgroundColor: jobDiagnosis.badgeBg, 
+                    borderColor: jobDiagnosis.badgeColor + '55' 
+                  }"
+                >
+                  <span class="pill-dot" :style="{ backgroundColor: jobDiagnosis.badgeColor }"></span>
+                  <span class="pill-title">{{ jobDiagnosis.badgeText }}</span>
+                  <span class="pill-days">· 在招 {{ jobDiagnosis.ageDays }} 天</span>
+                </div>
+                <div class="lifecycle-tip-box">
+                  💡 {{ jobDiagnosis.advice }}
+                </div>
+              </div>
+
+              <!-- 时间轴脉络 -->
+              <div class="timeline-stepper" v-if="jobTimeline.length > 0">
+                <div v-for="(t, idx) in jobTimeline" :key="idx" class="timeline-step">
+                  <div class="step-icon-wrap" :class="t.tagType">
+                    <span class="step-num">{{ idx + 1 }}</span>
+                  </div>
+                  <div class="step-info">
+                    <div class="step-top">
+                      <span class="step-name">{{ t.title }}</span>
+                      <span class="step-time">{{ t.date }}</span>
+                      <span class="step-ago">({{ t.relative }})</span>
+                    </div>
+                    <div class="step-sub">{{ t.desc }}</div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <template v-if="job.normalizedData?.welfareList?.length">
@@ -192,7 +227,8 @@
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { JobStatus } from '~/utils/enums'
-import { Building, MapPin, Map, Briefcase, GraduationCap, Globe, BarChart, Gift, FileText, Lightbulb, Sparkles, Rocket, ExternalLink, Tags, Ban, Target, Copy, RefreshCw, ShieldBan, UserCheck, X } from 'lucide-vue-next'
+import { Building, MapPin, Map, Briefcase, GraduationCap, Globe, BarChart, Gift, FileText, Lightbulb, Sparkles, Rocket, ExternalLink, Tags, Ban, Target, Copy, RefreshCw, ShieldBan, UserCheck, X, Clock } from 'lucide-vue-next'
+import { getJobTimeDiagnosis, getJobTimeline } from '~/utils/jobTimeUtils'
 
 const emit = defineEmits(['status-changed'])
 
@@ -201,6 +237,16 @@ const job = ref(null)
 const marking = ref(false)
 const predicting = ref(false)
 const generatingGreeting = ref(false)
+
+const jobDiagnosis = computed(() => {
+  if (!job.value) return null
+  return getJobTimeDiagnosis(job.value)
+})
+
+const jobTimeline = computed(() => {
+  if (!job.value) return []
+  return getJobTimeline(job.value)
+})
 
 const isJobExpired = computed(() => {
   if (!job.value) return false
@@ -714,6 +760,141 @@ defineExpose({
   font-size: 13px;
   color: #1e293b;
   font-weight: 500;
+}
+
+/* Lifecycle Panel Styles */
+.lifecycle-panel {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lifecycle-badge-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lifecycle-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1px solid;
+  font-size: 13px;
+  font-weight: 700;
+  width: fit-content;
+}
+
+.pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.pill-title {
+  font-weight: 700;
+}
+
+.pill-days {
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.lifecycle-tip-box {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  color: #0369a1;
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  line-height: 1.45;
+}
+
+.timeline-stepper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+  padding-left: 4px;
+}
+
+.timeline-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  position: relative;
+}
+
+.timeline-step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 24px;
+  bottom: -10px;
+  width: 2px;
+  background-color: #e2e8f0;
+}
+
+.step-icon-wrap {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+  color: white;
+  z-index: 1;
+}
+
+.step-icon-wrap.success { background-color: #16a34a; }
+.step-icon-wrap.primary { background-color: #0284c7; }
+.step-icon-wrap.warning { background-color: #ea580c; }
+.step-icon-wrap.info { background-color: #64748b; }
+
+.step-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 2px;
+}
+
+.step-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.step-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.step-time {
+  font-size: 12px;
+  font-weight: 500;
+  color: #334155;
+}
+
+.step-ago {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.step-sub {
+  font-size: 11px;
+  color: #94a3b8;
 }
 
 /* Tags and Description */

@@ -1,5 +1,5 @@
 import type { JobProcessor } from './types'
-import { cleanCompanyName } from '../companyProcessors/types'
+import { cleanCompanyName, extractCompanyMetadata } from '../companyProcessors/types'
 import { computeDescHash } from '../descHash'
 import { resolveJobHrActive } from '../hrAnalytics'
 import { extractStructuredAndPayload, syncJobDetailPayload } from '../jobDualWriter'
@@ -146,18 +146,18 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
   }
 
   // 再保存公司数据
+  const meta = extractCompanyMetadata(job)
   const companyRawData = {
     companyId: companyId,
-    companyFullName: companyFullName,
-    companyName: companyName,
-    companyIndustry: job.brandIndustry || brandComInfo.industryName || '',
-    companyScale: job.brandScaleName || brandComInfo.scaleName || '',
+    companyFullName: cleanFullName || companyFullName,
+    companyName: cleanName || companyName,
+    companyIndustry: meta.industry || job.brandIndustry || brandComInfo.industryName || '',
+    companyScale: meta.scale || job.brandScaleName || brandComInfo.scaleName || '',
+    companyStage: meta.stage || job.brandStageName || brandComInfo.stageName || '',
     sourcePlatform: 'Boss直聘'
   }
 
   if (cleanName || companyId) {
-    //根据公司id或者公司名称去查找，先通过id查找，如果没有则通过名称查找，如果有的话更新，没有的话创建
-    //因为抓取的数据存在公司id为空的情况，所以如果companyId为空的话，就只有通过公司名称查找
     let existingCompany = null
 
     // 第一步：尝试通过公司 ID 查找（最准确）
@@ -173,19 +173,26 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
       })
     }
 
-    const companyUpdateData = {
-      rawData: JSON.stringify(companyRawData),
-      companyId: companyId ? String(companyId) : undefined,
-      companyFullName: cleanFullName ? String(cleanFullName) : undefined
-    }
-
     // 第三步：执行入库操作
     if (existingCompany) {
-      // 场景 A：公司已存在，不更新数据
-      // await prisma.company.update({
-      //   where: { id: existingCompany.id },
-      //   data: companyUpdateData
-      // })
+      // 场景 A：公司已存在，增量补齐原本缺失的结构化字段
+      const needUpdate: any = {}
+      if (!existingCompany.companyFullName && cleanFullName) needUpdate.companyFullName = cleanFullName
+      if (!existingCompany.companyId && companyId) needUpdate.companyId = String(companyId)
+      if (!existingCompany.industry && meta.industry) needUpdate.industry = meta.industry
+      if (!existingCompany.scale && meta.scale) needUpdate.scale = meta.scale
+      if (!existingCompany.stage && meta.stage) needUpdate.stage = meta.stage
+      if (!existingCompany.companyType && meta.companyType) needUpdate.companyType = meta.companyType
+      if (!existingCompany.welfareList && meta.welfareList) needUpdate.welfareList = meta.welfareList
+      if (!existingCompany.rawData) needUpdate.rawData = JSON.stringify(companyRawData)
+
+      if (Object.keys(needUpdate).length > 0) {
+        needUpdate.updatedAt = updatedAt
+        await prisma.company.update({
+          where: { id: existingCompany.id },
+          data: needUpdate
+        })
+      }
     } else if (cleanName) {
       // 场景 B：公司不存在，尝试新建
       try {
@@ -195,26 +202,34 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
             companyFullName: cleanFullName ? String(cleanFullName) : undefined,
             sourcePlatform: 'Boss直聘',
             companyId: companyId ? String(companyId) : undefined,
+            industry: meta.industry || undefined,
+            scale: meta.scale || undefined,
+            stage: meta.stage || undefined,
+            companyType: meta.companyType || undefined,
+            welfareList: meta.welfareList || undefined,
             rawData: JSON.stringify(companyRawData)
           }
         })
       } catch (err: any) {
-        // 异常处理：捕获高并发下的唯一键冲突 (P2002)
-        // 比如两个请求同时发现公司不存在，同时执行 create，第二个就会报错 P2002
         if (err.code === 'P2002') {
-          // 既然冲突了，说明刚刚有别的请求创建了它，那我们再查一次把它找出来
           const newlyInserted = await prisma.company.findFirst({
             where: { companyName: cleanName, sourcePlatform: 'Boss直聘' }
           })
           if (newlyInserted) {
-            // 转为更新操作
-            await prisma.company.update({
-              where: { id: newlyInserted.id },
-              data: companyUpdateData
-            })
+            const needUpdate: any = {}
+            if (!newlyInserted.companyFullName && cleanFullName) needUpdate.companyFullName = cleanFullName
+            if (!newlyInserted.companyId && companyId) needUpdate.companyId = String(companyId)
+            if (!newlyInserted.industry && meta.industry) needUpdate.industry = meta.industry
+            if (!newlyInserted.scale && meta.scale) needUpdate.scale = meta.scale
+            if (Object.keys(needUpdate).length > 0) {
+              needUpdate.updatedAt = updatedAt
+              await prisma.company.update({
+                where: { id: newlyInserted.id },
+                data: needUpdate
+              })
+            }
           }
         } else {
-          // 其他未知错误，直接抛出
           throw err
         }
       }

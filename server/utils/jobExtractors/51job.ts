@@ -1,5 +1,5 @@
 import type { JobProcessor } from './types'
-import { cleanCompanyName } from '../companyProcessors/types'
+import { cleanCompanyName, extractCompanyMetadata } from '../companyProcessors/types'
 import { computeDescHash } from '../descHash'
 import { resolveJobHrActive } from '../hrAnalytics'
 import { extractStructuredAndPayload, syncJobDetailPayload } from '../jobDualWriter'
@@ -71,10 +71,14 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
   }
 
   // 组装公司的rowData字段的json数据
+  const meta = extractCompanyMetadata(job)
   const companyRawData = {
     companyId: companyId,
     companyName: cleanName,
     companyFullName: cleanFullName,
+    companyIndustry: meta.industry || '',
+    companyScale: meta.scale || '',
+    companyStage: meta.stage || '',
     sourcePlatform: '51job'
   }
 
@@ -157,11 +161,24 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
     }
 
     if (existingCompany) {
-      // 场景 A：公司已存在，不更新数据
-      // await prisma.company.update({
-      //   where: { id: existingCompany.id },
-      //   data: companyUpdateData
-      // })
+      // 场景 A：公司已存在，增量补齐原本缺失的结构化字段
+      const needUpdate: any = {}
+      if (!existingCompany.companyFullName && cleanFullName) needUpdate.companyFullName = cleanFullName
+      if (!existingCompany.companyId && companyId) needUpdate.companyId = String(companyId)
+      if (!existingCompany.industry && meta.industry) needUpdate.industry = meta.industry
+      if (!existingCompany.scale && meta.scale) needUpdate.scale = meta.scale
+      if (!existingCompany.stage && meta.stage) needUpdate.stage = meta.stage
+      if (!existingCompany.companyType && meta.companyType) needUpdate.companyType = meta.companyType
+      if (!existingCompany.welfareList && meta.welfareList) needUpdate.welfareList = meta.welfareList
+      if (!existingCompany.rawData) needUpdate.rawData = JSON.stringify(companyRawData)
+
+      if (Object.keys(needUpdate).length > 0) {
+        needUpdate.updatedAt = updatedAt
+        await prisma.company.update({
+          where: { id: existingCompany.id },
+          data: needUpdate
+        })
+      }
     } else if (cleanName) {
       // 场景 B：公司不存在，尝试新建
       try {
@@ -171,24 +188,34 @@ export const process51Job: JobProcessor = async (job, platform, prisma) => {
             companyFullName: cleanFullName ? String(cleanFullName) : '',
             sourcePlatform: '51job',
             companyId: companyId ? String(companyId) : '',
+            industry: meta.industry || undefined,
+            scale: meta.scale || undefined,
+            stage: meta.stage || undefined,
+            companyType: meta.companyType || undefined,
+            welfareList: meta.welfareList || undefined,
             rawData: JSON.stringify(companyRawData),
             createdAt: createdAt,
             updatedAt: updatedAt
           }
         })
       } catch (err: any) {
-        // 异常处理：捕获高并发下的唯一键冲突 (P2002)
-        // 比如两个请求同时发现公司不存在，同时执行 create，第二个就会报错 P2002
         if (err.code === 'P2002') {
-          // 既然冲突了，说明刚刚有别的请求创建了它，那我们再查一次把它找出来
           const newlyInserted = await prisma.company.findFirst({
             where: { companyName: cleanName, sourcePlatform: '51job' }
           })
           if (newlyInserted) {
-            await prisma.company.update({
-              where: { id: newlyInserted.id },
-              data: companyUpdateData
-            })
+            const needUpdate: any = {}
+            if (!newlyInserted.companyFullName && cleanFullName) needUpdate.companyFullName = cleanFullName
+            if (!newlyInserted.companyId && companyId) needUpdate.companyId = String(companyId)
+            if (!newlyInserted.industry && meta.industry) needUpdate.industry = meta.industry
+            if (!newlyInserted.scale && meta.scale) needUpdate.scale = meta.scale
+            if (Object.keys(needUpdate).length > 0) {
+              needUpdate.updatedAt = updatedAt
+              await prisma.company.update({
+                where: { id: newlyInserted.id },
+                data: needUpdate
+              })
+            }
           }
         } else {
           throw err

@@ -48,8 +48,17 @@
               <el-select v-model="lifecycleFilter" placeholder="时效筛选" style="width: 140px" @change="() => fetchJobs(false)">
                 <el-option label="全部时效" value="all"></el-option>
                 <el-option label="🟢 新发 (7天内)" value="new_7d"></el-option>
+                <el-option label="⚡ 活跃 (3天内刷新)" value="active_3d"></el-option>
                 <el-option label="🔥 活跃 (30天内)" value="new_30d"></el-option>
                 <el-option label="⚠️ 常驻 (>60天)" value="stale_60d"></el-option>
+              </el-select>
+              <el-select v-model="sortBy" placeholder="排序方式" style="width: 145px" @change="() => fetchJobs(false)">
+                <el-option label="🕒 最近变动" value="updatedAt"></el-option>
+                <el-option label="✨ 最新首发" value="publishTime"></el-option>
+                <el-option label="🔄 最新刷新" value="updateTime"></el-option>
+                <el-option label="📥 最新收录" value="firstSeen"></el-option>
+                <el-option label="💰 薪资从高到低" value="salaryDesc"></el-option>
+                <el-option label="💴 薪资从低到高" value="salaryAsc"></el-option>
               </el-select>
               <el-select v-model="headhunterFilter" placeholder="招聘来源" style="width: 145px" @change="() => fetchJobs(false)">
                 <el-option label="全部来源" value="all"></el-option>
@@ -163,13 +172,23 @@
               <!-- Special status badges -->
               <el-tag v-if="job.status === JobStatus.EXPIRED" type="danger" size="small" effect="dark" style="border: none;">已失效</el-tag>
               
-              <!-- 职位生命周期标记 (新发 / 常驻) -->
-              <span v-if="isNewJob(job)" class="tag-item tag-new">
-                🟢 {{ getNewJobText(job) }}
-              </span>
-              <span v-else-if="isStaleJob(job)" class="tag-item tag-stale">
-                ⚠️ 常驻职位 (&gt;60天)
-              </span>
+              <!-- 智能时效诊断标记 (结合首发时间、刷新状态与挂牌天数) -->
+              <el-tooltip
+                placement="top"
+                :content="getJobDiagnosis(job).advice"
+                :show-after="300"
+              >
+                <span 
+                  class="tag-item job-lifecycle-badge"
+                  :style="{ 
+                    color: getJobDiagnosis(job).badgeColor, 
+                    backgroundColor: getJobDiagnosis(job).badgeBg, 
+                    borderColor: getJobDiagnosis(job).badgeColor + '55' 
+                  }"
+                >
+                  {{ getJobDiagnosis(job).badgeText }}
+                </span>
+              </el-tooltip>
 
               <template v-if="job.isHidden && job.tags && Array.isArray(job.tags) && job.tags.length > 0">
                 <el-tag v-for="(t, idx) in job.tags" :key="'reason-'+idx" type="info" size="small" effect="dark" style="border: none;">
@@ -195,13 +214,38 @@
               <span class="tag-item" style="background-color: #fce4ec; color: #c2185b; border: 1px solid #f8bbd0;" v-if="job.normalizedData?.isHeadhunter">猎头/代招</span> 
             </div>
 
-            <!-- Meta Info -->
+            <!-- Meta Info & Lifecycle Timeline Tooltip -->
             <div class="job-meta">
-              <span v-if="job.firstSeen" class="meta-item" :title="'首次收录: ' + job.firstSeen">发现: {{ formatTimeAgo(job.firstSeen) }}</span>
-              <span v-if="job.lastSeen && job.lastSeen !== job.firstSeen" class="meta-item" :title="'最近活跃: ' + job.lastSeen">活跃: {{ formatTimeAgo(job.lastSeen) }}</span>
-              <span v-if="job.platformPublishTime || job.normalizedData?.publishDate" class="meta-item">首发: {{ formatDisplayDate(job.platformPublishTime || job.normalizedData?.publishDate) }}</span>
-              <span v-if="job.platformUpdateTime || job.normalizedData?.updateDate" class="meta-item">修改: {{ formatDisplayDate(job.platformUpdateTime || job.normalizedData?.updateDate) }}</span>
-              <span class="meta-item">状态: {{ job.normalizedData?.jobStatus || job.status || '-' }}</span>
+              <el-tooltip placement="bottom" :show-after="150" effect="light">
+                <template #content>
+                  <div class="timeline-tooltip-content">
+                    <div class="timeline-tooltip-title">📅 职位时效与生命周期脉络</div>
+                    <div class="timeline-tooltip-list">
+                      <div v-for="(t, idx) in getTimeline(job)" :key="idx" class="timeline-tooltip-item">
+                        <span class="step-dot" :class="t.tagType"></span>
+                        <div class="step-content">
+                          <div class="step-header">
+                            <span class="step-label">{{ t.title }}</span>
+                            <span class="step-val">{{ t.date }} ({{ t.relative }})</span>
+                          </div>
+                          <div class="step-desc">{{ t.desc }}</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="timeline-tooltip-tip">💡 {{ getJobDiagnosis(job).advice }}</div>
+                  </div>
+                </template>
+                <div class="meta-time-trigger">
+                  <span class="meta-item meta-time-highlight">
+                    🕒 首发: {{ formatDisplayDate(getPublishDate(job)) || '未知' }}
+                  </span>
+                  <span class="meta-item meta-time-highlight" v-if="getUpdateDate(job)">
+                    · 刷新: {{ formatTimeAgo(getUpdateDate(job)) }}
+                  </span>
+                  <span class="meta-timeline-hint">🔍 时效脉络</span>
+                </div>
+              </el-tooltip>
+              <span class="meta-item meta-job-status">状态: {{ job.normalizedData?.jobStatus || job.status || '-' }}</span>
             </div>
 
             <div class="dashed-divider"></div>
@@ -311,6 +355,14 @@ import { shallowRef, ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { JobStatus } from '~/utils/enums'
 import { Star, Eye, Ban, ThumbsDown, Trash2, Calendar, Bot, ExternalLink, Loader2, Copy, UserCheck } from 'lucide-vue-next'
+import { 
+  getJobTimeDiagnosis, 
+  getJobTimeline, 
+  formatDisplayDate, 
+  formatTimeAgo, 
+  getJobPublishDate, 
+  getJobUpdateDate 
+} from '~/utils/jobTimeUtils'
 
 const jobList = shallowRef([])
 const loading = ref(false)
@@ -374,51 +426,18 @@ const keywordFilter = ref('')
 const aiDiagnosisFilter = ref('all')
 const salaryFilter = ref('all')
 const lifecycleFilter = ref('all')
+const sortBy = ref('updatedAt')
 
 const jobDetailDrawerRef = ref(null)
 
 const loadMoreTrigger = ref(null)
 let observer = null
 
-const isNewJob = (job) => {
-  const t = job.firstSeen ? new Date(job.firstSeen).getTime() : (job.createdAt ? new Date(job.createdAt).getTime() : null)
-  if (!t) return false
-  return (Date.now() - t) <= 7 * 24 * 60 * 60 * 1000
-}
-
-const getNewJobText = (job) => {
-  const t = job.firstSeen ? new Date(job.firstSeen).getTime() : (job.createdAt ? new Date(job.createdAt).getTime() : null)
-  if (!t) return '新发职位'
-  const days = Math.max(1, Math.floor((Date.now() - t) / (24 * 60 * 60 * 1000)))
-  return days <= 1 ? '今日新发' : `${days}天前新发`
-}
-
-const isStaleJob = (job) => {
-  const t = job.firstSeen ? new Date(job.firstSeen).getTime() : (job.createdAt ? new Date(job.createdAt).getTime() : null)
-  if (!t) return false
-  return (Date.now() - t) >= 60 * 24 * 60 * 60 * 1000
-}
-
-
-const formatTimeAgo = (dateStr) => {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  if (isNaN(d.getTime())) return ''
-  const diffDays = Math.floor((Date.now() - d.getTime()) / (24 * 60 * 60 * 1000))
-  if (diffDays <= 0) return '今天'
-  if (diffDays === 1) return '昨天'
-  if (diffDays < 30) return `${diffDays}天前`
-  if (diffDays < 60) return '1个月前'
-  return `${Math.floor(diffDays / 30)}个月前`
-}
-
-const formatDisplayDate = (d) => {
-  if (!d) return ''
-  const str = String(d).trim()
-  if (str.includes('T')) return str.split('T')[0]
-  if (str.length > 10 && /^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10)
-  return str
-}
+// 统一由 utils/jobTimeUtils 提供的专业时效与生命周期诊断
+const getJobDiagnosis = (job) => getJobTimeDiagnosis(job)
+const getTimeline = (job) => getJobTimeline(job)
+const getPublishDate = (job) => getJobPublishDate(job)
+const getUpdateDate = (job) => getJobUpdateDate(job)
 
 const fetchJobs = async (isLoadMore = false) => {
   if (!isLoadMore) {
@@ -446,6 +465,7 @@ const fetchJobs = async (isLoadMore = false) => {
       aiDiagnosisFilter: aiDiagnosisFilter.value,
       salaryFilter: salaryFilter.value,
       lifecycleFilter: lifecycleFilter.value,
+      sortBy: sortBy.value,
     })
     const res = await $fetch(`/api/jobs?${params.toString()}`)
     if (res && res.success && Array.isArray(res.data)) {
@@ -1326,28 +1346,139 @@ onUnmounted(() => {
   line-height: 1.2;
 }
 
-.tag-item.tag-new {
-  background-color: #f0f9eb;
-  color: #67c23a;
-  border-color: #b3e19d;
+.tag-item.job-lifecycle-badge {
   font-weight: 600;
+  border-width: 1px;
+  border-style: solid;
+  cursor: help;
+  transition: all 0.2s ease;
 }
-
-.tag-item.tag-stale {
-  background-color: #fdf6ec;
-  color: #e6a23c;
-  border-color: #f3d19e;
-  font-weight: 500;
+.tag-item.job-lifecycle-badge:hover {
+  filter: brightness(0.95);
+  transform: translateY(-1px);
 }
-
 
 .job-meta {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 12px;
   font-size: 12px;
   color: var(--text-secondary, #86868B);
   margin-bottom: 12px;
+}
+
+.meta-time-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f8fafc;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.meta-time-trigger:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+.meta-time-highlight {
+  font-weight: 600;
+  color: #334155;
+}
+
+.meta-timeline-hint {
+  font-size: 11px;
+  color: #2563eb;
+  background: #dbeafe;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.meta-job-status {
+  color: #64748b;
+}
+
+/* Timeline Tooltip Styling */
+.timeline-tooltip-content {
+  max-width: 320px;
+  padding: 6px 2px;
+}
+
+.timeline-tooltip-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #0f172a;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 4px;
+}
+
+.timeline-tooltip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.timeline-tooltip-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+.step-dot.success { background-color: #16a34a; }
+.step-dot.primary { background-color: #0284c7; }
+.step-dot.warning { background-color: #ea580c; }
+.step-dot.info { background-color: #64748b; }
+
+.step-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.step-header {
+  display: flex;
+  gap: 4px;
+  align-items: baseline;
+}
+
+.step-label {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.step-val {
+  color: #475569;
+}
+
+.step-desc {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.timeline-tooltip-tip {
+  font-size: 11px;
+  color: #0369a1;
+  background: #f0f9ff;
+  padding: 6px 8px;
+  border-radius: 6px;
+  line-height: 1.4;
+  border: 1px solid #bae6fd;
 }
 
 .dashed-divider {

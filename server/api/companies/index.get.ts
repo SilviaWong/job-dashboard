@@ -137,6 +137,7 @@ export default defineEventHandler(async (event) => {
           welfareList: c.welfareList ? (() => { try { return JSON.parse(c.welfareList) } catch { return [] } })() : [],
           rawData: c.rawData ? JSON.parse(c.rawData) : null,
           rawData2: c.rawData2 ? JSON.parse(c.rawData2) : null,
+          rawData3: c.rawData3 ? JSON.parse(c.rawData3) : null,
         })
       } else {
         const existing = companyMap.get(canonicalName);
@@ -160,6 +161,9 @@ export default defineEventHandler(async (event) => {
         }
         if (!existing.rawData2 && c.rawData2) {
           existing.rawData2 = JSON.parse(c.rawData2);
+        }
+        if (!existing.rawData3 && c.rawData3) {
+          existing.rawData3 = JSON.parse(c.rawData3);
         }
       }
     }
@@ -249,7 +253,7 @@ export default defineEventHandler(async (event) => {
       const { tags, ...jobWithoutRawData } = job as any;
       let companyWithoutRawData = null;
       if (node) {
-        const { rawData: companyRaw, rawData2: companyRaw2, jobs: _jobs, platformSources: _platformSources, ...restCompany } = node as any;
+        const { rawData: companyRaw, rawData2: companyRaw2, rawData3: companyRaw3, jobs: _jobs, platformSources: _platformSources, ...restCompany } = node as any;
         companyWithoutRawData = restCompany;
       }
 

@@ -156,8 +156,9 @@ model Company {
   logo            String?  // 企业Logo图标URL或文件名
   welfareList     String?  // 企业福利待遇标签（JSON 数组字符串）
   
-  rawData         String?  // 保存抓取到的完整工商信息JSON
-  rawData2        String?  // 保存抓取到的第二来源的完整工商信息JSON
+  rawData         String?  // 来源1：职位列表页抓取的完整基础快照JSON
+  rawData2        String?  // 来源3：公司主页抓取的全景工商信息JSON
+  rawData3        String?  // 来源2：职位详情页附带提取的企业快照JSON
   isAgency        Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

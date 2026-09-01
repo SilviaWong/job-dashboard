@@ -1,6 +1,6 @@
 import { getPrisma } from '#prisma'
 import { JobStatus } from '../../../utils/enums'
-import { cleanCompanyName } from '../companyProcessors/types'
+import { cleanCompanyName, upsertCompanyFromDetail } from '../companyProcessors/types'
 import { cleanHtmlText } from '../jobNormalizer'
 
 /**
@@ -177,47 +177,22 @@ export async function process51JobDetail(detail: any, rawPlatform: string, prism
   }
 
   // =========================================================================
-  // 第五步：联动更新 Company 企业表中的企业全称
+  // 第五步：联动更新 Company 企业表（存储 rawData3 与补齐结构化字段）
   // =========================================================================
-  // if (companyFullName) {
-  //   const orConditions: any[] = []
-  //   // 51job Company 表中的 companyId 统一存的是 encryCompanyId (如 AWRUN146BT4CYAdmUTE)
-  //   if (encryCompanyId) {
-  //     orConditions.push({ companyId: String(encryCompanyId) })
-  //   }
-  //   if (numericCompanyId) {
-  //     orConditions.push({ companyId: String(numericCompanyId) })
-  //   }
-  //   if (companyName) {
-  //     orConditions.push({ companyName: companyName })
-  //   }
-  //   if (detailJobInfo.coName) {
-  //     const cleanedCoName = cleanCompanyName(detailJobInfo.coName)
-  //     if (cleanedCoName && cleanedCoName !== companyName) {
-  //       orConditions.push({ companyName: cleanedCoName })
-  //     }
-  //   }
-
-  //   if (orConditions.length > 0) {
-  //     const companies = await prisma.company.findMany({
-  //       where: {
-  //         sourcePlatform: standardizedPlatform,
-  //         OR: orConditions
-  //       }
-  //     })
-
-  //     for (const company of companies) {
-  //       await prisma.company.update({
-  //         where: { id: company.id },
-  //         data: {
-  //           companyFullName: companyFullName,
-  //           ...(encryCompanyId && (!company.companyId || company.companyId === String(numericCompanyId)) ? { companyId: String(encryCompanyId) } : {}),
-  //           updatedAt: updatedAt
-  //         }
-  //       })
-  //     }
-  //   }
-  // }
+  const effectiveCompanyId = encryCompanyId || numericCompanyId
+  if (companyName || companyFullName || effectiveCompanyId) {
+    try {
+      await upsertCompanyFromDetail(prisma, {
+        companyName: companyName,
+        companyFullName: companyFullName,
+        companyId: effectiveCompanyId ? String(effectiveCompanyId) : null,
+        platform: standardizedPlatform,
+        detailRaw: detail
+      })
+    } catch (e) {
+      console.error('[51Job Detail Processor] 同步更新 Company 异常:', e)
+    }
+  }
 
   return result
 }

@@ -349,30 +349,35 @@ const basicInfo = computed(() => {
   const c = company.value || {}
   const raw = c.rawData || {}
   const raw2 = c.rawData2 || {}
+  const raw3 = c.rawData3 || {}
 
-  const companyFullName = c.companyFullName || raw.companyFullName || raw.compFullName || raw2.companyFullName || ''
-  const industry = c.industry || raw.industry || raw.companyIndustry || raw.compIndustry || raw2.industry || ''
-  const scale = c.scale || raw.scale || raw.companyScale || raw.compScale || raw2.scale || ''
-  const stage = c.stage || raw.stage || raw.companyStage || raw.compStage || raw2.stage || ''
-  const companyType = c.companyType || raw.companyType || raw.compKindName || raw2.companyType || ''
-  const creditCode = c.creditCode || raw.creditCode || raw.unifiedSocialCreditCode || raw2.creditCode || ''
+  const companyFullName = c.companyFullName || raw2.companyFullName || raw2.compFullName || raw3.companyFullName || raw3['公司全称'] || raw3.compFullName || raw.companyFullName || raw.compFullName || ''
+  const industry = c.industry || raw2.industry || raw2.companyIndustry || raw2.compIndustry || raw3.industry || raw3['公司行业'] || raw3.companyIndustry || raw3.compIndustry || raw.industry || raw.companyIndustry || raw.compIndustry || ''
+  const scale = c.scale || raw2.scale || raw2.companyScale || raw2.compScale || raw3.scale || raw3['公司规模'] || raw3.companyScale || raw3.compScale || raw.scale || raw.companyScale || raw.compScale || ''
+  const stage = c.stage || raw2.stage || raw2.companyStage || raw2.compStage || raw3.stage || raw3['融资阶段'] || raw3.companyStage || raw3.compStage || raw.stage || raw.companyStage || raw.compStage || ''
+  const companyType = c.companyType || raw2.companyType || raw2.compKindName || raw3.companyType || raw3['企业类型'] || raw3.compKindName || raw.companyType || raw.compKindName || ''
+  const creditCode = c.creditCode || raw2.creditCode || raw2.unifiedSocialCreditCode || raw3.creditCode || raw3.unifiedSocialCreditCode || raw3['统一社会信用代码'] || raw.creditCode || raw.unifiedSocialCreditCode || ''
 
-  const address = raw.companyAddress || raw.address || raw.businessAddress || raw2.companyAddress || raw2.address || ''
-  const legalPerson = raw.legalPerson || raw.representative || raw.businessLicense?.legalPerson || raw2.legalPerson || ''
-  const registeredCapital = raw.registeredCapital || raw.businessLicense?.registeredCapital || raw2.registeredCapital || ''
-  const establishmentDate = raw.establishmentDate || raw.businessLicense?.startDate || raw2.establishmentDate || ''
+  const address = raw2.companyAddress || raw2.address || raw2.businessAddress || raw3['详细完整地址'] || raw3.companyAddress || raw3.address || raw.companyAddress || raw.address || raw.businessAddress || ''
+  const legalPerson = raw2.legalPerson || raw2.representative || raw2.businessLicense?.legalPerson || raw3['法定代表人'] || raw3.legalPerson || raw3.representative || raw.legalPerson || raw.representative || raw.businessLicense?.legalPerson || ''
+  const registeredCapital = raw2.registeredCapital || raw2.businessLicense?.registeredCapital || raw3['注册资金'] || raw3['注册资本'] || raw3.registeredCapital || raw.registeredCapital || raw.businessLicense?.registeredCapital || ''
+  const establishmentDate = raw2.establishmentDate || raw2.businessLicense?.startDate || raw3['成立日期'] || raw3.establishmentDate || raw.establishmentDate || raw.businessLicense?.startDate || ''
 
-  const description = raw.companyDesc || raw.intro || raw.description || raw.companyIntro || raw2.companyDesc || raw2.intro || ''
+  const description = raw2.companyDesc || raw2.intro || raw2.description || raw2.companyIntro || raw3.companyDesc || raw3.intro || raw.companyDesc || raw.intro || raw.description || raw.companyIntro || ''
 
   let welfare = []
   if (Array.isArray(c.welfareList) && c.welfareList.length > 0) {
     welfare = c.welfareList
+  } else if (Array.isArray(raw2.welfareList) && raw2.welfareList.length > 0) {
+    welfare = raw2.welfareList
+  } else if (Array.isArray(raw3.welfareList) && raw3.welfareList.length > 0) {
+    welfare = raw3.welfareList
+  } else if (typeof raw3['公司福利'] === 'string' && raw3['公司福利'].trim()) {
+    welfare = raw3['公司福利'].split(',').map((s: string) => s.trim()).filter(Boolean)
   } else if (Array.isArray(raw.welfare) && raw.welfare.length > 0) {
     welfare = raw.welfare
   } else if (Array.isArray(raw.welfareList) && raw.welfareList.length > 0) {
     welfare = raw.welfareList
-  } else if (Array.isArray(raw2.welfareList) && raw2.welfareList.length > 0) {
-    welfare = raw2.welfareList
   }
 
   const hasAnyBasicInfo = !!(

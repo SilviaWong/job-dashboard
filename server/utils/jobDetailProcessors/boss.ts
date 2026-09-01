@@ -1,6 +1,6 @@
 import { getPrisma } from '#prisma'
 import { JobStatus } from '../../../utils/enums'
-import { cleanCompanyName } from '../companyProcessors/types'
+import { cleanCompanyName, upsertCompanyFromDetail } from '../companyProcessors/types'
 import { cleanHtmlText } from '../jobNormalizer'
 
 /**
@@ -150,24 +150,22 @@ export async function processBossJobDetail(detail: any, rawPlatform: string, pri
   }
 
   // =========================================================================
-  // 第五步：联动更新 Company 企业表中的企业全称
+  // 第五步：联动更新 Company 企业表（存储 rawData3 与补齐结构化字段）
   // =========================================================================
   const companyId = detail['公司ID']
-  // if (companyId && companyFullName) {
-  //   const companies = await prisma.company.findMany({
-  //     where: { companyId: String(companyId), sourcePlatform: 'Boss直聘' }
-  //   })
-
-  //   for (const company of companies) {
-  //     await prisma.company.update({
-  //       where: { id: company.id },
-  //       data: {
-  //         companyFullName: companyFullName,
-  //         updatedAt: updatedAt
-  //       }
-  //     })
-  //   }
-  // }
+  if (companyName || companyFullName || companyId) {
+    try {
+      await upsertCompanyFromDetail(prisma, {
+        companyName: companyName,
+        companyFullName: companyFullName,
+        companyId: companyId,
+        platform: 'Boss直聘',
+        detailRaw: detail
+      })
+    } catch (e) {
+      console.error('[Boss Job Detail Processor] 同步更新 Company 异常:', e)
+    }
+  }
 
   return result
 }
