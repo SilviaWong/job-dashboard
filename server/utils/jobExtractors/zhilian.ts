@@ -125,24 +125,24 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
       // 职位类型 0: 公司直招, 1/2/3/4: 猎头/代招, 空: 公司直招
       jobType = job.proxyModel?.recruitPosition || detailedPosition.recruitPosition || 0
 
-      jobId = job.number || base.positionNumber || detailedPosition.number || detailedPosition.positionNumber || ''
-      jobTitle = job.name || job.list_jobName || base.positionName || detailedPosition.name || detailedPosition.positionName || ''
-      salary = job.salary60 || base.salary || detailedPosition.salary || ''
-      location = job.workCity || jobDetail.workCity || detailedPosition.positionWorkCity || job.jobRootOrgInfo?.cityName || ''
+      jobId = job['职位ID'] || job.number || base.positionNumber || detailedPosition.number || detailedPosition.positionNumber || job.jobId || ''
+      jobTitle = job['职位名称'] || job.name || job.list_jobName || base.positionName || detailedPosition.name || detailedPosition.positionName || base.name || ''
+      salary = job['薪资待遇'] || job.salary60 || base.salary || detailedPosition.salary || ''
+      location = job['工作地点'] || job.workCity || jobDetail.workCity || detailedPosition.positionWorkCity || job.jobRootOrgInfo?.cityName || ''
       // jobDetailData.position?.workLocation?.workAddress
-      education = job.education || base.education || detailedPosition.education || ''
+      education = job['学历要求'] || job.education || base.education || detailedPosition.education || ''
 
-      companyId = job.companyNumber || job.rootCompanyNumber || compInfo.companyNumber || detailedPosition.companyNumber || ''
+      companyId = job['公司ID'] || job.companyNumber || job.rootCompanyNumber || compInfo.companyNumber || detailedPosition.companyNumber || ''
       if (jobType === 0) {
         // 公司直招
-        companyName = compInfo.companyName || detailedPosition.companyName || job.companyName || ''
-        companyFullName = compInfo.companyName || detailedPosition.companyName || job.companyName || ''
+        companyName = job['公司名称'] || compInfo.companyName || compInfo.companyShotName || detailedPosition.companyName || job.companyName || job['公司全称'] || ''
+        companyFullName = job['公司全称'] || compInfo.companyName || detailedPosition.companyName || job.companyName || companyName || ''
 
       } else {
         // 猎头代招
         // 猎头代招时，companyName是猎头公司名称
-        companyName = jobDetailData.staff?.companyName || detailedPosition.staff?.companyName || ''
-        companyFullName = jobDetailData.staff?.companyName || detailedPosition.staff?.companyName || ''
+        companyName = job['公司名称'] || jobDetailData.staff?.companyName || detailedPosition.staff?.companyName || ''
+        companyFullName = job['公司全称'] || jobDetailData.staff?.companyName || detailedPosition.staff?.companyName || companyName || ''
       }
 
       // 对公司名称和公司全称进行中文括号转英文括号，以及去除空格的处理
@@ -164,24 +164,24 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
 
       jobType = job.proxyModel?.recruitPosition || 0
 
-      jobId = job.number || base.positionNumber || ''
-      jobTitle = job.name || job.list_jobName || base.positionName || ''
-      salary = job.salary60 || base.salary || ''
-      location = job.workCity || job.jobRootOrgInfo?.cityName || ''
+      jobId = job['职位ID'] || job.number || base.positionNumber || job.jobId || ''
+      jobTitle = job['职位名称'] || job.name || job.list_jobName || base.positionName || ''
+      salary = job['薪资待遇'] || job.salary60 || base.salary || ''
+      location = job['工作地点'] || job.workCity || job.jobRootOrgInfo?.cityName || ''
       // jobDetailData.position?.workLocation?.workAddress
-      education = job.education || base.education || ''
+      education = job['学历要求'] || job.education || base.education || ''
 
-      companyId = job.companyNumber || job.rootCompanyNumber || ''
+      companyId = job['公司ID'] || job.companyNumber || job.rootCompanyNumber || ''
       if (jobType === 0) {
         // 公司直招
-        companyName = job.companyName || ''
-        companyFullName = job.companyName || ''
+        companyName = job['公司名称'] || job.companyName || job['公司全称'] || ''
+        companyFullName = job['公司全称'] || job.companyName || companyName || ''
 
       } else {
         // 猎头代招
         // 猎头代招时，companyName是猎头公司名称
-        companyName = base.staff?.companyName || ''
-        companyFullName = base.staff?.companyName || ''
+        companyName = job['公司名称'] || base.staff?.companyName || ''
+        companyFullName = job['公司全称'] || base.staff?.companyName || companyName || ''
       }
 
       // 对公司名称和公司全称进行中文括号转英文括号，以及去除空格的处理

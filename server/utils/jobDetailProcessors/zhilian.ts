@@ -29,20 +29,21 @@ export async function processZhilianJobDetail(detail: any, rawPlatform: string, 
   // =========================================================================
   const standardizedPlatform = (rawPlatform === 'zhilian' || rawPlatform === '智联招聘' || rawPlatform === '智联') ? '智联' : rawPlatform || '智联'
   const jobDetail = detail.jobDetail || {}
-  const detailedPosition = jobDetail.detailedPosition || {}
-  const compInfo = jobDetail.detailedCompany || {}
+  const detailedPosition = jobDetail.detailedPosition || jobDetail.position || detail.position || {}
+  const compInfo = jobDetail.detailedCompany || jobDetail.company || detail.company || {}
+  const base = detailedPosition.base || {}
 
-  let jobId = detail['职位ID'] || detail.jobId || detail.id || detail['job_id'] || detailedPosition.positionNumber || detailedPosition.number || ''
+  let jobId = detail['职位ID'] || detail.jobId || detail.id || detail['job_id'] || detailedPosition.positionNumber || detailedPosition.number || base.positionNumber || ''
 
   if (!jobId) {
     console.warn(`[Zhilian Job Detail Processor] 无法在详情数据中找到 jobId (平台: ${standardizedPlatform}):`, detail)
     return
   }
 
-  const jobTitle = detail['职位名称'] || detail.jobName || detailedPosition.name || detailedPosition.positionName || ''
-  const companyName = cleanCompanyName(detail['公司名称'] || detail.companyName || compInfo.companyName || detailedPosition.companyName || detail['公司全称'] || '')
-  const companyFullName = cleanCompanyName(detail['公司全称'] || detail.companyFullName || compInfo.companyName || detailedPosition.companyName || companyName || '')
-  const jobStatusRaw = detail['招聘状态'] || detail.jobStatus || jobDetail.jobStatus || detailedPosition.jobStatus || detailedPosition.positionStatus || ''
+  const jobTitle = detail['职位名称'] || detail.jobName || detailedPosition.name || detailedPosition.positionName || base.positionName || base.name || ''
+  const companyName = cleanCompanyName(detail['公司名称'] || detail.companyName || compInfo.companyName || compInfo.companyShotName || detailedPosition.companyName || compInfo.name || detail['公司全称'] || '')
+  const companyFullName = cleanCompanyName(detail['公司全称'] || detail.companyFullName || compInfo.companyName || detailedPosition.companyName || compInfo.name || companyName || '')
+  const jobStatusRaw = detail['招聘状态'] || detail.jobStatus || jobDetail.jobStatus || detailedPosition.jobStatus || detailedPosition.positionStatus || base.positionStatus || ''
 
   // 如果获取不到职位名称和公司名称，说明可能是失效/下架页面
   const isInvalidPage = !companyFullName && !jobTitle && !companyName
@@ -170,7 +171,7 @@ export async function processZhilianJobDetail(detail: any, rawPlatform: string, 
   // =========================================================================
   // 第五步：联动更新 Company 企业表（存储 rawData3 与补齐结构化字段）
   // =========================================================================
-  const companyId = detail['公司ID'] || detail.companyId || detail.companyNumber || compInfo.companyNumber || detailedPosition.companyNumber || ''
+  const companyId = detail['公司ID'] || detail.companyId || detail.companyNumber || compInfo.companyNumber || detailedPosition.companyNumber || compInfo.number || ''
   if (companyName || companyFullName || companyId) {
     try {
       await upsertCompanyFromDetail(prisma, {
