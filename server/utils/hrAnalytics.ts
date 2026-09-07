@@ -59,9 +59,13 @@ export function extractRawHrStatus(raw: any, jobDetail?: any, platform?: string)
 
   // 4. 智联
   if (p.includes('智联') || p.includes('zhilian')) {
-    const staff = raw?.staffCard
+    if (raw?.['HR活跃度']) return String(raw['HR活跃度']).trim()
+    const staff = raw?.staffCard || raw?.jobDetailData?.staff || raw?.jobDetail?.detailedPosition?.staff || raw?.staff || raw?.jobDeliverCache?.staffCard || raw?.jobDeliverCache?.jobDetailData?.staff
     if (staff?.hrOnlineState && String(staff.hrOnlineState).trim()) {
       return String(staff.hrOnlineState).trim()
+    }
+    if (staff?.lastOnlineTimeText && String(staff.lastOnlineTimeText).trim()) {
+      return String(staff.lastOnlineTimeText).trim()
     }
     if (staff?.hrStateInfo && String(staff.hrStateInfo).trim()) {
       return String(staff.hrStateInfo).trim()

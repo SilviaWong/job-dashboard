@@ -153,16 +153,16 @@ export function parseExperienceYears(expStr?: string | null): ParsedExperience {
     return { expMinYears: 0, expMaxYears: 0 }
   }
 
-  if (str.includes('10年') || str.includes('十年')) {
-    return { expMinYears: 10, expMaxYears: null }
-  }
-
   const rangeMatch = str.match(/(\d+)-(\d+)年/)
   if (rangeMatch) {
     return {
       expMinYears: parseInt(rangeMatch[1], 10) || 0,
       expMaxYears: parseInt(rangeMatch[2], 10) || null
     }
+  }
+
+  if (str.includes('10年') || str.includes('十年')) {
+    return { expMinYears: 10, expMaxYears: null }
   }
 
   const singleUnderMatch = str.match(/(\d+)年以内/)
@@ -191,6 +191,33 @@ export function parseExperienceYears(expStr?: string | null): ParsedExperience {
   }
 
   return { expMinYears: 0, expMaxYears: null }
+}
+
+/**
+ * 根据城市推导直辖市或所属省份
+ */
+export function deriveProvince(city?: string | null): string | null {
+  if (!city || typeof city !== 'string') return null
+  const c = city.trim()
+  if (c.includes('北京')) return '北京'
+  if (c.includes('上海')) return '上海'
+  if (c.includes('天津')) return '天津'
+  if (c.includes('重庆')) return '重庆'
+  if (/广州|深圳|东莞|佛山|珠海|惠州|中山|江门|汕头|湛江/.test(c)) return '广东'
+  if (/杭州|宁波|温州|嘉兴|湖州|绍兴|金华|衢州|舟山|台州|丽水/.test(c)) return '浙江'
+  if (/南京|苏州|无锡|常州|南通|徐州|连云港|淮安|盐城|扬州|镇江|泰州|宿迁/.test(c)) return '江苏'
+  if (/成都|绵阳|德阳|宜宾|南充|泸州|乐山/.test(c)) return '四川'
+  if (/武汉|襄阳|宜昌|荆州|黄冈|孝感/.test(c)) return '湖北'
+  if (/长沙|株洲|湘潭|衡阳|岳阳|常德/.test(c)) return '湖南'
+  if (/西安|咸阳|宝鸡|渭南|汉中|榆林/.test(c)) return '陕西'
+  if (/福州|厦门|泉州|漳州|莆田|宁德/.test(c)) return '福建'
+  if (/济南|青岛|烟台|潍坊|临沂|淄博|威海/.test(c)) return '山东'
+  if (/郑州|洛阳|南阳|许昌|周口|新乡/.test(c)) return '河南'
+  if (/合肥|芜湖|蚌埠|滁州|阜阳|马鞍山/.test(c)) return '安徽'
+  if (/沈阳|大连|鞍山|抚顺|本溪|营口/.test(c)) return '辽宁'
+  if (/石家庄|唐山|保定|廊坊|沧州|邯郸/.test(c)) return '河北'
+  if (/南昌|九江|赣州|宜春|吉安|上饶/.test(c)) return '江西'
+  return null
 }
 
 /**

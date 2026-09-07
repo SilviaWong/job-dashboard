@@ -31,7 +31,8 @@ export default defineEventHandler(async (event) => {
     boss_single_details = [],
     liepin_scraped_data_v1 = [],
     zhilian_scraped_data_v1 = [],
-    zhilian_scraped_data_v2 = []
+    zhilian_scraped_data_v2 = [],
+    zhilian_scraped_v2 = []
   } = body
 
   let syncResults = {
@@ -337,6 +338,28 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  // 3. 将 zhilian_scraped_v2 的数据保存
+  const zhilianScrapedV2 = Array.isArray(zhilian_scraped_v2) ? zhilian_scraped_v2 : []
+  for (const job of zhilianScrapedV2) {
+    const compName = job['公司名称'] || job.companyName || job.company?.name || '未知'
+    const title = job['职位名称'] || job.name || job.jobName || '未知'
+    const jobId = String(job['职位ID'] || job.jobId || job.number || job.id || `${compName}_${title}`)
+    const loc = job['工作地点'] || job['工作城市'] || [job.workCity, job.cityDistrict].filter(Boolean).join('·') || '未知'
+
+    allJobs.push({
+      jobId: jobId,
+      title: String(title),
+      companyName: String(compName),
+      salary: String(job['薪资待遇'] || job.salary60 || job.salary || '面议'),
+      location: String(loc),
+      platform: '智联',
+      dataSource: 'zhilian_scraped_v2',
+      rawData: JSON.stringify(job),
+      createdAt: new Date(),
+      updatedAt: new Date()
+    })
+  }
+
   // Preload existing jobs for fast in-memory change detection
   const existingJobs = await prisma.job.findMany({
     select: {
@@ -395,7 +418,7 @@ export default defineEventHandler(async (event) => {
           }
         }
 
-        const { structured, payload } = extractStructuredAndPayload(parsedRaw || job, job.platform, job.rawData)
+        const { structuredJobData, payloadData } = extractStructuredAndPayload(parsedRaw || job, job.platform, job.rawData)
 
         const savedJob = await prisma.job.upsert({
           where: { 
@@ -417,15 +440,15 @@ export default defineEventHandler(async (event) => {
             hrActiveStatus: job.hrActiveStatus,
             hrActiveLevel: job.hrActiveLevel,
             isHeadhunter: isHeadhunter,
-            ...structured
+            ...structuredJobData
           },
           create: {
             ...job,
-            ...structured
+            ...structuredJobData
           }
         })
 
-        await syncJobDetailPayload(prisma, savedJob.id, payload)
+        await syncJobDetailPayload(prisma, savedJob.id, payloadData)
         syncResults.jobUpdates++
       } catch (err) {
         console.error('Failed to upsert job:', job.jobId, err)

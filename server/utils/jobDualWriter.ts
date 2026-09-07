@@ -1,5 +1,5 @@
 import { normalizeJobData, type NormalizedJobData } from './jobNormalizer'
-import { parseSalaryRange, parseExperienceYears, safeStringifyArray } from './jobDataParser'
+import { parseSalaryRange, parseExperienceYears, deriveProvince, safeStringifyArray } from './jobDataParser'
 
 export interface ExtractedJobFields {
   structuredJobData: {
@@ -48,9 +48,16 @@ export function extractStructuredAndPayload(
   }
 
   // 确保附带 platform 属性以正确命中具体平台的 Normalizer 适配器
+  let standardPlatform = platform || jobRaw.platform || ''
+  const p = String(standardPlatform).toLowerCase()
+  if (p.includes('boss')) standardPlatform = 'Boss直聘'
+  else if (p.includes('51job') || p.includes('51')) standardPlatform = '51job'
+  else if (p.includes('智联') || p.includes('zhilian')) standardPlatform = '智联'
+  else if (p.includes('猎聘') || p.includes('liepin')) standardPlatform = '猎聘'
+
   const jobWithPlatform = {
-    platform,
-    ...jobRaw
+    ...jobRaw,
+    platform: standardPlatform
   }
 
   // 利用既有的标准化适配器提取数据
@@ -62,16 +69,23 @@ export function extractStructuredAndPayload(
   const expStr = normalized.experience || jobRaw.experience || jobRaw.jobExperience || jobRaw.workYearString || ''
   const parsedExp = parseExperienceYears(expStr)
 
-  const city = normalized.city || jobRaw.cityName || jobRaw.city || null
-  const area = normalized.area || jobRaw.areaDistrict || jobRaw.area || null
+  let city = normalized.city || jobRaw.cityName || jobRaw.city || null
+  let area = normalized.area || jobRaw.areaDistrict || jobRaw.area || null
+  if (city && city.includes('·')) {
+    const parts = city.split('·').map((s: string) => s.trim()).filter(Boolean)
+    city = parts[0] || null
+    if (!area && parts[1]) area = parts[1]
+  }
   const businessDistrict = normalized.businessDistrict || jobRaw.businessDistrict || null
   const address = normalized.address || jobRaw.address || null
+  const province = deriveProvince(city)
 
   const structuredJobData = {
     salaryMin: parsedSalary.salaryMin,
     salaryMax: parsedSalary.salaryMax,
     salaryAvg: parsedSalary.salaryAvg,
     salaryMonths: parsedSalary.salaryMonths,
+    province,
     city,
     area,
     businessDistrict,

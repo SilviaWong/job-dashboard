@@ -36,8 +36,8 @@ export const processZhilianCompany: CompanyProcessor = async (company, platform,
   cFullName = cleanCompanyName(cFullName)
   // companyId = String(companyId).trim()
 
-  // 统一平台标识为中文“智联招聘”
-  const standardizedPlatform = platform === 'zhilian' ? '智联招聘' : platform
+  // 统一平台标识为中文“智联”
+  const standardizedPlatform = (platform === 'zhilian' || platform === '智联招聘') ? '智联' : (platform || '智联')
   const rawData = company.rawData || company
   const stringifiedData = JSON.stringify(rawData)
   const createdAt = new Date()
