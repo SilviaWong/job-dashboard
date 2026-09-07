@@ -373,7 +373,7 @@ const basicInfo = computed(() => {
   } else if (Array.isArray(raw3.welfareList) && raw3.welfareList.length > 0) {
     welfare = raw3.welfareList
   } else if (typeof raw3['公司福利'] === 'string' && raw3['公司福利'].trim()) {
-    welfare = raw3['公司福利'].split(',').map((s: string) => s.trim()).filter(Boolean)
+    welfare = raw3['公司福利'].split(',').map(s => s.trim()).filter(Boolean)
   } else if (Array.isArray(raw.welfare) && raw.welfare.length > 0) {
     welfare = raw.welfare
   } else if (Array.isArray(raw.welfareList) && raw.welfareList.length > 0) {
