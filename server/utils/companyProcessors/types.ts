@@ -8,8 +8,12 @@ export type CompanyProcessor = (company: any, platform: string, prisma: PrismaCl
  * 2. 将中文括号（‘（’、‘）’）替换为英文括号（‘(’、‘)’）；
  * 3. 去除所有空格。
  */
-export function cleanCompanyName(str: string): string {
+export function cleanCompanyName(str: any): string {
   if (!str) return ''
+  if (typeof str === 'object') {
+    str = str.name ?? str.companyName ?? str.text ?? str.title ?? ''
+    if (!str) return ''
+  }
   let res = String(str)
   if (res.includes('\\u') || res.includes('\\U')) {
     try {
@@ -33,6 +37,41 @@ export function cleanCompanyName(str: string): string {
 }
 
 /**
+ * 安全地从多个候选值中提取首个非空字符串
+ * 兼容 string、number、array（拼接为'/'或取非空）以及嵌套对象（如 { name, text, label, value, title, url }）
+ */
+export function pickString(...candidates: any[]): string {
+  for (const c of candidates) {
+    if (c == null) continue
+    if (typeof c === 'string') {
+      const trimmed = c.trim()
+      if (trimmed) return trimmed
+    } else if (typeof c === 'number') {
+      const str = String(c).trim()
+      if (str) return str
+    } else if (Array.isArray(c)) {
+      const items = c
+        .map((item: any) => {
+          if (typeof item === 'string') return item.trim()
+          if (typeof item === 'number') return String(item).trim()
+          if (item && typeof item === 'object') {
+            const val = item.name ?? item.text ?? item.label ?? item.value ?? item.title ?? item.url ?? ''
+            return String(val).trim()
+          }
+          return ''
+        })
+        .filter(Boolean)
+      if (items.length > 0) return items.join('/')
+    } else if (typeof c === 'object') {
+      const val = c.name ?? c.text ?? c.label ?? c.value ?? c.title ?? c.url ?? c.avatar ?? c.icon ?? ''
+      if (typeof val === 'string' && val.trim()) return val.trim()
+      if (typeof val === 'number') return String(val).trim()
+    }
+  }
+  return ''
+}
+
+/**
  * 从原始 JSON 对象中提取结构化企业字段 (支持 raw 列表、raw2 主页、raw3 详情页三源合流)
  */
 export function extractCompanyMetadata(raw: any, raw2?: any, raw3?: any) {
@@ -40,41 +79,41 @@ export function extractCompanyMetadata(raw: any, raw2?: any, raw3?: any) {
   const r2 = raw2 || {}
   const r3 = raw3 || {}
 
-  const industry = (
-    r.compIndustry || r.companyIndustry || r.industryName || r.industry || r.brandIndustry || r.industryTypeString || r['公司行业'] ||
-    r2.compIndustry || r2.companyIndustry || r2.industryName || r2.industry || r2.brandIndustry || r2.industryTypeString || r2['公司行业'] ||
-    r3.compIndustry || r3.companyIndustry || r3.industryName || r3.industry || r3.brandIndustry || r3.industryTypeString || r3['公司行业'] || ''
-  ).trim()
+  const industry = pickString(
+    r.compIndustry, r.companyIndustry, r.industryName, r.industry, r.brandIndustry, r.industryTypeString, r['公司行业'], r.brandComInfo?.industryName,
+    r2.compIndustry, r2.companyIndustry, r2.industryName, r2.industry, r2.brandIndustry, r2.industryTypeString, r2['公司行业'], r2.brandComInfo?.industryName,
+    r3.compIndustry, r3.companyIndustry, r3.industryName, r3.industry, r3.brandIndustry, r3.industryTypeString, r3['公司行业'], r3.brandComInfo?.industryName
+  )
 
-  const scale = (
-    r.compScale || r.companyScale || r.companySize || r.companySizeString || r.sizeName || r.brandScaleName || r['公司规模'] ||
-    r2.compScale || r2.companyScale || r2.companySize || r2.companySizeString || r2.sizeName || r2.brandScaleName || r2['公司规模'] ||
-    r3.compScale || r3.companyScale || r3.companySize || r3.companySizeString || r3.sizeName || r3.brandScaleName || r3['公司规模'] || ''
-  ).trim()
+  const scale = pickString(
+    r.compScale, r.companyScale, r.companySize, r.companySizeString, r.sizeName, r.brandScaleName, r['公司规模'], r.brandComInfo?.scaleName,
+    r2.compScale, r2.companyScale, r2.companySize, r2.companySizeString, r2.sizeName, r2.brandScaleName, r2['公司规模'], r2.brandComInfo?.scaleName,
+    r3.compScale, r3.companyScale, r3.companySize, r3.companySizeString, r3.sizeName, r3.brandScaleName, r3['公司规模'], r3.brandComInfo?.scaleName
+  )
 
-  const stage = (
-    r.compStage || r.companyStage || r.brandStageName || r.stageName || r.stage || r['融资阶段'] ||
-    r2.compStage || r2.companyStage || r2.brandStageName || r2.stageName || r2.stage || r2['融资阶段'] ||
-    r3.compStage || r3.companyStage || r3.brandStageName || r3.stageName || r3.stage || r3['融资阶段'] || ''
-  ).trim()
+  const stage = pickString(
+    r.compStage, r.companyStage, r.brandStageName, r.stageName, r.stage, r['融资阶段'], r.brandComInfo?.stageName,
+    r2.compStage, r2.companyStage, r2.brandStageName, r2.stageName, r2.stage, r2['融资阶段'], r2.brandComInfo?.stageName,
+    r3.compStage, r3.companyStage, r3.brandStageName, r3.stageName, r3.stage, r3['融资阶段'], r3.brandComInfo?.stageName
+  )
 
-  const companyType = (
-    r.compKindName || r.companyType || r.companyTypeString || r.property || r['企业类型'] ||
-    r2.compKindName || r2.companyType || r2.companyTypeString || r2.property || r2['企业类型'] ||
-    r3.compKindName || r3.companyType || r3.companyTypeString || r3.property || r3['企业类型'] || ''
-  ).trim()
+  const companyType = pickString(
+    r.compKindName, r.companyType, r.companyTypeString, r.property, r['企业类型'],
+    r2.compKindName, r2.companyType, r2.companyTypeString, r2.property, r2['企业类型'],
+    r3.compKindName, r3.companyType, r3.companyTypeString, r3.property, r3['企业类型']
+  )
 
-  const logo = (
-    r.compLogo || r.companyLogo || r.logo ||
-    r2.compLogo || r2.companyLogo || r2.logo ||
-    r3.compLogo || r3.companyLogo || r3.logo || ''
-  ).trim()
+  const logo = pickString(
+    r.compLogo, r.companyLogo, r.logo, r.brandLogo,
+    r2.compLogo, r2.companyLogo, r2.logo, r2.brandLogo,
+    r3.compLogo, r3.companyLogo, r3.logo, r3.brandLogo
+  )
 
-  let creditCode = (
-    r.creditCode || r.unifiedSocialCreditCode || r.creditNo || r.taxNumber || r.licenseNumber || r.businessLicenseCode || r['统一社会信用代码'] ||
-    r2.creditCode || r2.unifiedSocialCreditCode || r2.creditNo || r2.taxNumber || r2.licenseNumber || r2.businessLicenseCode || r2['统一社会信用代码'] ||
-    r3.creditCode || r3.unifiedSocialCreditCode || r3.creditNo || r3.taxNumber || r3.licenseNumber || r3.businessLicenseCode || r3['统一社会信用代码'] || ''
-  ).trim()
+  let creditCode = pickString(
+    r.creditCode, r.unifiedSocialCreditCode, r.creditNo, r.taxNumber, r.licenseNumber, r.businessLicenseCode, r['统一社会信用代码'],
+    r2.creditCode, r2.unifiedSocialCreditCode, r2.creditNo, r2.taxNumber, r2.licenseNumber, r2.businessLicenseCode, r2['统一社会信用代码'],
+    r3.creditCode, r3.unifiedSocialCreditCode, r3.creditNo, r3.taxNumber, r3.licenseNumber, r3.businessLicenseCode, r3['统一社会信用代码']
+  )
 
   // 自适应提取 18 位统一社会信用代码 (包含在执照/工商信息对象中)
   if (!creditCode) {
@@ -84,9 +123,11 @@ export function extractCompanyMetadata(raw: any, raw2?: any, raw3?: any) {
                       r.companyExtDetail || r2.companyExtDetail || r3.companyExtDetail ||
                       r.raw_company_json || r2.raw_company_json || r3.raw_company_json
     if (licSource) {
-      const licStr = JSON.stringify(licSource)
-      const m = licStr.match(/[0-9A-HJ-NPQRTUWXY]{2}\d{6}[0-9A-HJ-NPQRTUWXY]{10}/i)
-      if (m) creditCode = m[0]
+      try {
+        const licStr = typeof licSource === 'string' ? licSource : JSON.stringify(licSource)
+        const m = licStr.match(/[0-9A-HJ-NPQRTUWXY]{2}\d{6}[0-9A-HJ-NPQRTUWXY]{10}/i)
+        if (m) creditCode = m[0]
+      } catch {}
     }
   }
 
@@ -94,12 +135,26 @@ export function extractCompanyMetadata(raw: any, raw2?: any, raw3?: any) {
                r2.compTags || r2.welfareList || r2.labels || r2['公司福利'] ||
                r3.compTags || r3.welfareList || r3.labels || r3['公司福利']
   let welfareList: string | null = null
+  const formatTagItem = (t: any): string => {
+    if (typeof t === 'string') return t.trim()
+    if (typeof t === 'number') return String(t).trim()
+    if (t && typeof t === 'object') {
+      const val = t.name ?? t.text ?? t.label ?? t.value ?? t.title ?? ''
+      return String(val).trim()
+    }
+    return ''
+  }
+
   if (Array.isArray(tags)) {
-    welfareList = JSON.stringify(tags.filter((t: any) => typeof t === 'string' && t.trim()))
+    const list = tags.map(formatTagItem).filter(Boolean)
+    if (list.length > 0) welfareList = JSON.stringify(list)
   } else if (typeof tags === 'string' && tags.trim()) {
     try {
       const parsed = JSON.parse(tags)
-      if (Array.isArray(parsed)) welfareList = JSON.stringify(parsed)
+      if (Array.isArray(parsed)) {
+        const list = parsed.map(formatTagItem).filter(Boolean)
+        if (list.length > 0) welfareList = JSON.stringify(list)
+      }
     } catch {
       welfareList = JSON.stringify(tags.split(',').map((s: string) => s.trim()).filter(Boolean))
     }

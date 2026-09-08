@@ -151,9 +151,9 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
     companyId: companyId,
     companyFullName: cleanFullName || companyFullName,
     companyName: cleanName || companyName,
-    companyIndustry: meta.industry || job.brandIndustry || brandComInfo.industryName || '',
-    companyScale: meta.scale || job.brandScaleName || brandComInfo.scaleName || '',
-    companyStage: meta.stage || job.brandStageName || brandComInfo.stageName || '',
+    companyIndustry: meta.industry || (typeof job.brandIndustry === 'string' ? job.brandIndustry : '') || (typeof brandComInfo.industryName === 'string' ? brandComInfo.industryName : '') || '',
+    companyScale: meta.scale || (typeof job.brandScaleName === 'string' ? job.brandScaleName : '') || (typeof brandComInfo.scaleName === 'string' ? brandComInfo.scaleName : '') || '',
+    companyStage: meta.stage || (typeof job.brandStageName === 'string' ? job.brandStageName : '') || (typeof brandComInfo.stageName === 'string' ? brandComInfo.stageName : '') || '',
     sourcePlatform: 'Boss直聘'
   }
 
