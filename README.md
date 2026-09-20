@@ -170,6 +170,8 @@ job-dashboard-local/
 - 📐 [架构设计文档 (ARCHITECTURE.md)](docs/ARCHITECTURE.md)
 - 💾 [数据库设计规范 (DATABASE_DESIGN.md)](docs/DATABASE_DESIGN.md)
 - 🔌 [API 接口文档 (API_DOCUMENTATION.md)](docs/API_DOCUMENTATION.md)
+- 📊 [多招聘平台数据解析规范 (DATA_PARSER_SPECIFICATION.md)](docs/DATA_PARSER_SPECIFICATION.md)
+- 🔌 [浏览器插件与看板数据集成规范 (EXTENSION_INTEGRATION_SPECIFICATION.md)](docs/EXTENSION_INTEGRATION_SPECIFICATION.md)
 - 📖 [开发者指南 (DEVELOPER_GUIDE.md)](docs/DEVELOPER_GUIDE.md)
 
 ---

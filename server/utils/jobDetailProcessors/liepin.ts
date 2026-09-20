@@ -177,7 +177,7 @@ export async function processLiepinJobDetail(detail: any, rawPlatform: string, p
         companyFullName: companyFullName,
         companyId: companyId ? String(companyId) : null,
         platform: standardizedPlatform,
-        detailRaw: detail
+        detailRaw: detail.companyCard || detail
       })
     } catch (e) {
       console.error('[Liepin Job Detail Processor] 同步更新 Company 异常:', e)

@@ -180,13 +180,61 @@ export interface DetailCompanyInput {
 }
 
 /**
+ * 从可能混杂了职位详情的大对象中，提炼出纯净的企业卡片原始对象（剔除职位、JD、HR等无关数据）
+ */
+export function extractCleanCompanyCard(raw: any, platform: string): any {
+  if (!raw || typeof raw !== 'object') return {}
+
+  // 1. 如果已显式挂载了独立的 companyCard 或 companyData，优先采用
+  let baseCard = raw
+  if (raw.companyCard && typeof raw.companyCard === 'object' && Object.keys(raw.companyCard).length > 0) {
+    baseCard = raw.companyCard
+  } else if (raw.companyData && typeof raw.companyData === 'object' && Object.keys(raw.companyData).length > 0) {
+    baseCard = raw.companyData
+  }
+
+  // 2. 职位专属字段黑名单（坚决排除在企业卡片之外）
+  const jobBlacklistKeys = new Set([
+    '职位ID', '职位名称', '招聘状态', '薪资待遇', '工作地点', '工作经验',
+    '学历要求', '职位描述', '技能标签', 'HR姓名', 'HR职位', 'HR活跃度',
+    'HR_ID', 'HR标签', 'HR所属公司', '岗位类型_外包猎头', 'jobKind',
+    '页面更新时间', '最后刷新时间', '精确更新时间',
+    'jobId', 'encryptJobId', 'jobTitle', 'title', 'salary', 'salaryDesc',
+    'jobDesc', 'jobDescribe', 'city', 'district', 'experience', 'education',
+    'skills', 'tags', 'hrName', 'hrTitle', 'hrActive', 'hrActiveText',
+    'isHrActive', 'url', 'detailUrl', 'raw_detail_json', 'jobDeliverList',
+    'pageConfig', 'traceId', 'jobDetail', 'companyCard', 'companyData'
+  ])
+
+  const cleanCard: Record<string, any> = {}
+  for (const [key, value] of Object.entries(baseCard)) {
+    if (!jobBlacklistKeys.has(key)) {
+      cleanCard[key] = value
+    }
+  }
+
+  // 补齐平台与数据来源标识
+  if (!cleanCard['平台'] && !cleanCard.platform) {
+    cleanCard['平台'] = platform
+    cleanCard.platform = platform
+  }
+  if (!cleanCard['数据来源'] && !cleanCard.dataSource) {
+    cleanCard['数据来源'] = `${platform.toLowerCase()}_detail_company_card`
+    cleanCard.dataSource = `${platform.toLowerCase()}_detail_company_card`
+  }
+
+  return cleanCard
+}
+
+/**
  * 将职位详情页抓取到的附带企业工商数据，可靠写入 Company 表的 rawData3，并增量补齐一等公民结构化字段
  */
 export async function upsertCompanyFromDetail(prisma: any, input: DetailCompanyInput) {
   const { companyName, companyFullName, companyId, platform, detailRaw } = input
   const cleanName = cleanCompanyName(companyName || '')
   const cleanFullName = cleanCompanyName(companyFullName || '')
-  const stringifiedData = JSON.stringify(detailRaw)
+  const pureCompanyCard = extractCleanCompanyCard(detailRaw, platform)
+  const stringifiedData = JSON.stringify(pureCompanyCard)
   const updatedAt = new Date()
 
   if (!cleanName && !companyId && !cleanFullName) return
@@ -209,7 +257,7 @@ export async function upsertCompanyFromDetail(prisma: any, input: DetailCompanyI
     })
   }
 
-  const meta = extractCompanyMetadata(null, null, detailRaw)
+  const meta = extractCompanyMetadata(null, null, pureCompanyCard)
 
   if (existingCompany) {
     // 2. 更新已有企业：存入 rawData3，同时如果原本的结构化字段为空，智能补全

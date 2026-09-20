@@ -179,7 +179,7 @@ export async function processZhilianJobDetail(detail: any, rawPlatform: string, 
         companyFullName: companyFullName,
         companyId: companyId ? String(companyId) : null,
         platform: standardizedPlatform,
-        detailRaw: detail
+        detailRaw: detail.companyCard || detail
       })
     } catch (e) {
       console.error('[Zhilian Job Detail Processor] 同步更新 Company 异常:', e)

@@ -160,7 +160,7 @@ export async function processBossJobDetail(detail: any, rawPlatform: string, pri
         companyFullName: companyFullName,
         companyId: companyId,
         platform: 'Boss直聘',
-        detailRaw: detail
+        detailRaw: detail.companyCard || detail
       })
     } catch (e) {
       console.error('[Boss Job Detail Processor] 同步更新 Company 异常:', e)

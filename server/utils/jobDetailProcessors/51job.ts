@@ -187,7 +187,7 @@ export async function process51JobDetail(detail: any, rawPlatform: string, prism
         companyFullName: companyFullName,
         companyId: effectiveCompanyId ? String(effectiveCompanyId) : null,
         platform: standardizedPlatform,
-        detailRaw: detail
+        detailRaw: detail.companyCard || detail
       })
     } catch (e) {
       console.error('[51Job Detail Processor] 同步更新 Company 异常:', e)
