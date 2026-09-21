@@ -79,11 +79,13 @@ export function extractCompanyMetadata(raw: any, raw2?: any, raw3?: any) {
   const r2 = raw2 || {}
   const r3 = raw3 || {}
 
-  const industry = pickString(
-    r.compIndustry, r.companyIndustry, r.industryName, r.industry, r.brandIndustry, r.industryTypeString, r['公司行业'], r.brandComInfo?.industryName,
-    r2.compIndustry, r2.companyIndustry, r2.industryName, r2.industry, r2.brandIndustry, r2.industryTypeString, r2['公司行业'], r2.brandComInfo?.industryName,
-    r3.compIndustry, r3.companyIndustry, r3.industryName, r3.industry, r3.brandIndustry, r3.industryTypeString, r3['公司行业'], r3.brandComInfo?.industryName
+  // 提取行业：优先取中文文本名称，严格过滤 0 及纯数字分类代码（如 Boss 直聘内部数字 code）
+  const rawIndustry = pickString(
+    r.brandIndustry, r['公司行业'], r.brandComInfo?.industryName, r.compIndustry, r.companyIndustry, r.industryName, r.industryTypeString,
+    r2.brandIndustry, r2.industry, r2.compIndustry, r2.companyIndustry, r2['公司行业'], r2.brandComInfo?.industryName, r2.industryName, r2.industryTypeString,
+    r3.brandIndustry, r3['公司行业'], r3.brandComInfo?.industryName, r3.compIndustry, r3.companyIndustry, r3.industryName, r3.industryTypeString
   )
+  const industry = (rawIndustry && !/^\d+$/.test(rawIndustry.trim())) ? rawIndustry.trim() : null
 
   const scale = pickString(
     r.compScale, r.companyScale, r.companySize, r.companySizeString, r.sizeName, r.brandScaleName, r['公司规模'], r.brandComInfo?.scaleName,

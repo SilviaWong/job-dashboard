@@ -20,6 +20,7 @@ export interface ExtractedJobFields {
     hrName?: string | null
     hrPosition?: string | null
     isHeadhunter?: boolean
+    clientCompanyName?: string | null
     platformPublishTime?: string | null
     platformUpdateTime?: string | null
   }
@@ -98,6 +99,7 @@ export function extractStructuredAndPayload(
     hrName: normalized.hrName || jobRaw.hrName || null,
     hrPosition: normalized.hrPosition || jobRaw.hrPosition || null,
     isHeadhunter: !!normalized.isHeadhunter,
+    clientCompanyName: normalized.clientCompanyName ? String(normalized.clientCompanyName).trim() : null,
     platformPublishTime: normalized.publishDate || null,
     platformUpdateTime: normalized.updateDate || null
   }

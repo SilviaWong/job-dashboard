@@ -72,15 +72,7 @@ export async function callAI(systemPrompt: string, userPrompt: string, event: an
   }
 
   const data = await response.json()
-  let resultText = ''
-
-  if (isClaude && !finalUrl.includes('chat/completions')) {
-    resultText = (data.content && data.content[0] && data.content[0].text) || ''
-  } else if (isGemini && !finalUrl.includes('chat/completions')) {
-    resultText = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || ''
-  } else {
-    resultText = (data.choices && data.choices[0] && data.choices[0].message.content) || ''
-  }
+  const resultText = extractAiResponseText(data)
 
   if (!resultText) {
     throw new Error('AI 接口返回为空')

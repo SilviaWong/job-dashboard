@@ -160,44 +160,20 @@ ${settings.resume}
     }
 
     const data = await response.json()
-    let resultText = ''
-
-    if (isClaude && !finalUrl.includes('chat/completions')) {
-      resultText = (data.content && data.content[0] && data.content[0].text) || ''
-    } else if (isGemini && !finalUrl.includes('chat/completions')) {
-      resultText = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || ''
-    } else {
-      resultText = (data.choices && data.choices[0] && data.choices[0].message.content) || ''
-    }
+    const { content: resultText, thinking } = extractAiResponse(data)
 
     if (!resultText) {
       return { success: false, error: 'AI 接口返回为空' }
     }
 
     // 5. Parse Score
-    let totalScore = 0;
-    try {
-      const scoreMatch = resultText.match(/\[([\d,\s]+)\]/);
-      if (scoreMatch && scoreMatch[1]) {
-        const scores = scoreMatch[1].split(',').map(s => parseInt(s.trim()));
-        totalScore = scores.reduce((a, b) => a + (isNaN(b) ? 0 : b), 0);
-      } else {
-        // 尝试在文本中寻找 0-100 的总分
-        const fallbackMatch = resultText.match(/(?:总分|综合得分|匹配度).*?(\\d{1,3})/);
-        if (fallbackMatch && fallbackMatch[1]) {
-          totalScore = parseInt(fallbackMatch[1]);
-        }
-      }
-    } catch (e) {
-      console.error('Parse score error:', e);
+    const { totalScore, matchLevel } = parseAiScore(resultText)
+
+    // 若包含思维链 (thinking)，将其封装为优雅的折叠块，附加在详细分析之前
+    let fullResultText = resultText
+    if (thinking) {
+      fullResultText = `<details class="ai-thinking-block"><summary>💭 查看 AI 深度思考推理过程</summary>\n\n${thinking}\n\n</details>\n\n---\n\n${resultText}`
     }
-
-    // 确保总分在合理区间
-    totalScore = Math.max(0, Math.min(100, totalScore));
-
-    let matchLevel = 'B';
-    if (totalScore >= 80) matchLevel = 'A';
-    if (totalScore < 60) matchLevel = 'C';
 
     // 6. Save to Prisma
     const aiResult = await prisma.aiJobResult.upsert({
@@ -205,13 +181,13 @@ ${settings.resume}
       update: {
         score: totalScore,
         matchLevel,
-        resultText
+        resultText: fullResultText
       },
       create: {
         jobId,
         score: totalScore,
         matchLevel,
-        resultText
+        resultText: fullResultText
       }
     })
 

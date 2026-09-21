@@ -206,6 +206,8 @@ function normalizeBossJob(job: any, raw: any, raw2: any, companyInfo?: any, jobD
 
   const bossEncryptJobId = raw?.encryptJobId || info?.encryptId || job.jobId;
 
+  const isHeadhunter = raw?.proxyJob === 1 || info?.proxyJob === 1 || !!(raw?.['岗位类型_外包猎头'] && String(raw['岗位类型_外包猎头']).includes('猎头'));
+
   return {
     jobUrl: bossEncryptJobId ? `https://www.zhipin.com/job_detail/${bossEncryptJobId}.html` : '',
     publishDate: '',
@@ -214,8 +216,8 @@ function normalizeBossJob(job: any, raw: any, raw2: any, companyInfo?: any, jobD
     companyIndustry: raw?.brandIndustry || comp.industryName || boss_single['公司行业'] || '',
     companyStage: raw?.brandStageName || comp.customerBrandStageName || comp.stageName || '',
     companyScale: raw?.brandScaleName || comp.scaleName || boss_single['公司规模'] || '',
-    brandName: raw?.proxyJob === 0 ? (raw?.brandName || comp.brandName || comp.customerBrandName || boss_single['公司名称'] || '') : (boss.brandName || boss_single['HR职位'] || ''),
-    companyFullName: raw?.proxyJob === 0 ? (job?.companyFullName || boss_single['公司全称'] || raw?._fetched_companyFullName || raw?.['公司全称'] || raw?.brandName || comp.customerBrandName || comp.brandName || '') : (job.companyFullName || boss.brandName || boss_single['HR职位'] || ''),
+    brandName: !isHeadhunter ? (raw?.brandName || comp.brandName || comp.customerBrandName || boss_single['公司名称'] || '') : (boss.brandName || boss_single['HR所属公司'] || job.companyName || boss_single['HR职位'] || ''),
+    companyFullName: !isHeadhunter ? (job?.companyFullName || boss_single['公司全称'] || raw?._fetched_companyFullName || raw?.['公司全称'] || raw?.brandName || comp.customerBrandName || comp.brandName || '') : (job.companyFullName || boss.brandName || boss_single['HR所属公司'] || job.companyName || boss_single['HR职位'] || ''),
     companyId: raw?.encryptBrandId || comp.encryptBrandId || boss.brandName || '',
     hrName: raw?.bossName || boss.name || boss_single['HR姓名'] || '',
     hrPosition: raw?.bossTitle || boss.title || boss_single['HR职位'] || '',
@@ -234,8 +236,8 @@ function normalizeBossJob(job: any, raw: any, raw2: any, companyInfo?: any, jobD
     area: raw?.areaDistrict || '',
     businessDistrict: raw?.businessDistrict || '',
     address: info.address || boss_single['详细完整地址'] || '',
-    isHeadhunter: raw?.proxyJob === 1 || info?.proxyJob === 1,
-    clientCompanyName: raw?.proxyJob === 1 ? (raw?.brandName || comp.customerBrandName || comp.brandName || '') : '',
+    isHeadhunter: isHeadhunter,
+    clientCompanyName: isHeadhunter ? (comp.customerBrandName || raw?.brandName || comp.brandName || boss_single['客户公司'] || '') : '',
     dataSource: 'BOSS直聘',
     jobStatus: boss_single['招聘状态'] || job.status || '',
   };
@@ -282,8 +284,8 @@ function normalize51Job(job: any, raw: any, raw2: any, companyInfo?: any, jobDet
     area: fallback.jobAreaLevelDetail?.districtString || info.jobAreaLevelDetail?.districtString || '',
     businessDistrict: fallback.landMarkString || fallback.jobAreaLevelDetail?.landMarkString || info.jobAreaLevelDetail?.landMarkString || '',
     address: info.address || fallback._detail_address || info.companyAddress || '',
-    isHeadhunter: fallback.jobType === '1' || fallback.jobType === '2' || fallback.companyTypeString === '中介',
-    clientCompanyName: fallback.jobType === '1' || fallback.jobType === '2' ? fallback.compName : '',
+    isHeadhunter: fallback.jobType === '1' || fallback.jobType === '2' || fallback.jobType === 1 || fallback.jobType === 2 || info.jobType === '1' || info.jobType === '2' || fallback.companyTypeString === '中介',
+    clientCompanyName: (fallback.jobType === '1' || fallback.jobType === '2' || fallback.jobType === 1 || fallback.jobType === 2 || info.jobType === '1' || info.jobType === '2' || fallback.companyTypeString === '中介') ? (fallback.compName || info.compName || '') : '',
     dataSource: '51job',
     jobStatus: job.status || '',
   };
@@ -314,8 +316,8 @@ function normalizeZhilianJob(job: any, raw: any, raw2: any, companyInfo?: any, j
     compfullName = fallback['公司全称'] || detailedCompany.companyName || fallback.companyName || jobDeliverCache.companyName || compName || ''
   } else {
     // 猎头
-    compName = fallback['公司名称'] || staff.companyName || detailedPosition.staff?.companyName || ''
-    compfullName = fallback['公司全称'] || staff.companyName || detailedPosition.staff?.companyName || compName || ''
+    compName = fallback['公司名称'] || staff.companyName || jobDetailData.staff?.companyName || detailedPosition.staff?.companyName || fallback.staff?.companyName || ''
+    compfullName = fallback['公司全称'] || staff.companyName || jobDetailData.staff?.companyName || detailedPosition.staff?.companyName || fallback.staff?.companyName || compName || ''
   }
 
   // 提取薪资范围字符串
@@ -422,7 +424,7 @@ function normalizeZhilianJob(job: any, raw: any, raw2: any, companyInfo?: any, j
     businessDistrict: fallback.streetName || position.workLocation?.streetName || detailedPosition.streetName || detailedPosition.tradingArea || '',
     address: address,
     isHeadhunter: Number(jobType) > 0,
-    clientCompanyName: jobDetailData.companyProxy?.companyName || detailedPosition.companyProxy?.companyName || '',
+    clientCompanyName: Number(jobType) > 0 ? (jobDetailData.companyProxy?.companyName || fallback.companyProxy?.companyName || detailedPosition.companyProxy?.companyName || '') : '',
     dataSource: '智联',
     jobStatus: fallback['招聘状态'] || job.status || '',
   };
@@ -473,9 +475,8 @@ function normalizeLiepinJob(job: any, raw: any, raw2: any, companyInfo?: any, jo
     city: jobInfo.dqCityName || jdJson.jobLocation?.address?.addressLocality || jobInfo.dq || '',
     area: jobInfo.dqAreaName || '',
     businessDistrict: fallback.businessDistrict || jobInfo.businessDistrict || '',
-    address: jdJson.jobLocation?.address?.streetAddress || jdJson.jobLocation?.address?.addressLocality || jobInfo.dq || '',
-    isHeadhunter: String(jobInfo.jobKind) === '1',
-    clientCompanyName: jobInfo.jobKind === '1' ? (comp.compName || jdJson.hiringOrganization?.name) : '',
+    isHeadhunter: String(jobInfo.jobKind) === '1' || String(fallback.job?.jobKind) === '1' || fallback.isHeadhunter === true,
+    clientCompanyName: (String(jobInfo.jobKind) === '1' || String(fallback.job?.jobKind) === '1' || fallback.isHeadhunter === true) ? (comp.compName || jdJson.hiringOrganization?.name || fallback.clientCompanyName || '') : '',
     dataSource: '猎聘',
     jobStatus: job.status || '',
   };

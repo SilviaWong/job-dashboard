@@ -70,7 +70,8 @@ export default defineEventHandler(async (event) => {
       andConditions.push({
         OR: [
           { title: { contains: keyword } },
-          { companyName: { contains: keyword } }
+          { companyName: { contains: keyword } },
+          { clientCompanyName: { contains: keyword } }
         ]
       })
     }
@@ -336,6 +337,14 @@ export default defineEventHandler(async (event) => {
         companyWithoutRawData = restCompany;
       }
 
+      let compIndustry = companyInfo?.industry || '';
+      if (!compIndustry || /^\d+$/.test(String(compIndustry).trim())) {
+        let parsedRaw: any = null;
+        try { parsedRaw = JSON.parse(job.rawData || '{}'); } catch (e) {}
+        compIndustry = parsedRaw?.brandIndustry || parsedRaw?.brandComInfo?.industryName || parsedRaw?.['公司行业'] || parsedRaw?.compIndustry || '';
+        if (compIndustry && /^\d+$/.test(String(compIndustry).trim())) compIndustry = '';
+      }
+
       let normalizedData: any = null
       if (job.city || job.skills || job.detailPayload?.jobDesc) {
         normalizedData = {
@@ -343,7 +352,7 @@ export default defineEventHandler(async (event) => {
           publishDate: job.platformPublishTime || '',
           updateDate: job.platformUpdateTime || '',
           spiderDate: '',
-          companyIndustry: companyInfo?.industry || '',
+          companyIndustry: compIndustry,
           companyStage: companyInfo?.stage || '',
           companyScale: companyInfo?.scale || '',
           brandName: job.companyName,
@@ -367,7 +376,7 @@ export default defineEventHandler(async (event) => {
           businessDistrict: job.businessDistrict || '',
           address: job.address || '',
           isHeadhunter: !!job.isHeadhunter,
-          clientCompanyName: job.isHeadhunter ? job.companyFullName : '',
+          clientCompanyName: job.clientCompanyName || '',
           dataSource: job.dataSource || '',
           jobStatus: job.status || '',
           hrActiveStatus: job.hrActiveStatus || '',
@@ -379,6 +388,9 @@ export default defineEventHandler(async (event) => {
         let parsedRawData2 = {}
         try { parsedRawData2 = JSON.parse(job.rawData2 || '{}') } catch (e) { }
         normalizedData = normalizeJobData(job, parsedRawData, parsedRawData2, null, null)
+        if (job.clientCompanyName) {
+          normalizedData.clientCompanyName = job.clientCompanyName
+        }
       }
 
       const { rawData, rawData2, tags, detailPayload, ...jobWithoutRawData } = job;

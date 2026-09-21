@@ -48,8 +48,9 @@ model Job {
   hrName         String?  // 招聘人姓名
   hrPosition     String?  // 招聘人职位
   
-  // 猎头/代招标记
-  isHeadhunter   Boolean? @default(false)
+  // 猎头/代招标记与代招客户公司
+  isHeadhunter      Boolean? @default(false)
+  clientCompanyName String?
 
   // 阶段一新增：结构化薪资 (千元/月数值，用于毫秒级范围查询与排序)
   salaryMin      Float?
@@ -90,6 +91,7 @@ model Job {
   @@index([lastSeen])
   @@index([hrActiveLevel])
   @@index([isHeadhunter])
+  @@index([clientCompanyName])
   @@index([status, isHidden, isFavorited])
   @@index([applyStatus])
   @@index([city])

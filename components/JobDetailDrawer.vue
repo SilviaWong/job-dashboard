@@ -33,7 +33,14 @@
             </div>
           
             <div class="detail-sub-header">
-              <span class="company-text"><el-icon><Building /></el-icon> {{ job.normalizedData?.clientCompanyName || job.normalizedData?.brandName || '-' }}</span>
+              <span class="company-text"><el-icon><Building /></el-icon> {{ job.companyName || job.normalizedData?.brandName || '-' }}</span>
+              <template v-if="(job.isHeadhunter || job.normalizedData?.isHeadhunter) && (job.clientCompanyName || job.normalizedData?.clientCompanyName)">
+                <span class="divider">|</span>
+                <span class="client-company-sub">
+                  <span class="client-label">代招客户：</span>
+                  <span class="client-val">{{ job.clientCompanyName || job.normalizedData?.clientCompanyName }}</span>
+                </span>
+              </template>
               <span class="divider">|</span>
               <span class="location-text"><el-icon><MapPin /></el-icon> {{ [job.normalizedData?.city, job.normalizedData?.area, job.normalizedData?.businessDistrict].filter(Boolean).join('·') }}</span>
             </div>
@@ -46,13 +53,22 @@
               <el-tag effect="light" type="info" size="large" class="badge-tag"><el-icon><Globe /></el-icon> {{ job.platform }}</el-tag>
               <el-tag effect="light" type="info" size="large" class="badge-tag"><el-icon><Briefcase /></el-icon> {{ job.normalizedData?.experience || '经验不限' }}</el-tag>
               <el-tag effect="light" type="info" size="large" class="badge-tag"><el-icon><GraduationCap /></el-icon> {{ job.normalizedData?.degree || '学历不限' }}</el-tag>
-              <el-tag v-if="job.normalizedData?.isHeadhunter" effect="light" size="large" class="badge-tag" style="background-color: #fce4ec; color: #c2185b; border: 1px solid #f8bbd0;">
+              <el-tag v-if="job.isHeadhunter || job.normalizedData?.isHeadhunter" effect="light" size="large" class="badge-tag" style="background-color: #fce4ec; color: #c2185b; border: 1px solid #f8bbd0;">
                 <el-icon><UserCheck /></el-icon>&nbsp;猎头/代招岗位
+                <span v-if="job.clientCompanyName || job.normalizedData?.clientCompanyName" style="font-weight: 500; margin-left: 4px;">
+                  （客户：{{ job.clientCompanyName || job.normalizedData?.clientCompanyName }}）
+                </span>
               </el-tag>
             </div>
 
             <div class="section-title"><el-icon><BarChart /></el-icon> 岗位概览</div>
             <div class="stats-grid">
+              <div class="stat-box" v-if="(job.isHeadhunter || job.normalizedData?.isHeadhunter) && (job.clientCompanyName || job.normalizedData?.clientCompanyName)">
+                <span class="stat-label">代招客户公司</span>
+                <span class="stat-value client-company-highlight" :title="job.clientCompanyName || job.normalizedData?.clientCompanyName">
+                  {{ job.clientCompanyName || job.normalizedData?.clientCompanyName }}
+                </span>
+              </div>
               <div class="stat-box"><span class="stat-label">所属行业</span><span class="stat-value">{{ job.normalizedData?.companyIndustry || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">公司阶段</span><span class="stat-value">{{ job.normalizedData?.companyStage || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">人员规模</span><span class="stat-value">{{ job.normalizedData?.companyScale || '-' }}</span></div>
@@ -526,6 +542,9 @@ const formatAiAnalysis = (text) => {
   if (!text) return '暂无分析结果'
   let formatted = String(text)
   
+  // Horizontal rules
+  formatted = formatted.replace(/^---$/gm, '\n\n<hr class="ai-hr" />\n\n')
+
   // Headers
   formatted = formatted.replace(/^### (.*?)$/gm, '\n\n<h3>$1</h3>\n\n')
   formatted = formatted.replace(/^## (.*?)$/gm, '\n\n<h2>$1</h2>\n\n')
@@ -546,7 +565,7 @@ const formatAiAnalysis = (text) => {
   formatted = formatted.split(/\n\s*\n/).map(block => {
     const trimmed = block.trim()
     if (!trimmed) return ''
-    if (trimmed.startsWith('<h') || trimmed.startsWith('<ul') || trimmed.startsWith('<ol')) {
+    if (trimmed.startsWith('<h') || trimmed.startsWith('<ul') || trimmed.startsWith('<ol') || trimmed.startsWith('<details') || trimmed.startsWith('<hr')) {
       return block
     }
     return `<p>${block.replace(/\n/g, '<br>')}</p>`
@@ -701,6 +720,32 @@ defineExpose({
   color: #475569;
   font-weight: 500;
   margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.client-company-sub {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  background-color: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #ffedd5;
+  padding: 1px 8px;
+  border-radius: 4px;
+}
+
+.client-company-sub .client-label {
+  color: #9a3412;
+  font-size: 12px;
+}
+
+.client-company-sub .client-val {
+  font-weight: 600;
+}
+
+.client-company-highlight {
+  color: #c2410c !important;
+  font-weight: 600 !important;
 }
 
 .detail-address {
@@ -1039,6 +1084,30 @@ defineExpose({
 }
 .ai-analysis-content p {
   margin: 8px 0;
+}
+.ai-analysis-content .ai-thinking-block {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 12px 0 16px 0;
+  font-size: 13px;
+  color: #64748b;
+}
+.ai-analysis-content .ai-thinking-block summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #475569;
+  user-select: none;
+}
+.ai-analysis-content .ai-thinking-block[open] summary {
+  margin-bottom: 10px;
+  color: #0284c7;
+}
+.ai-analysis-content .ai-hr {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 18px 0;
 }
 
 .generator-section {

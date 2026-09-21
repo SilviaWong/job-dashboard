@@ -185,11 +185,11 @@
                     {{ [job.normalizedData?.city, job.normalizedData?.area].filter(Boolean).join('·') }} | {{ job.normalizedData?.experience || '不限' }} | {{ job.normalizedData?.degree || '不限' }}
                   </div>
                   
-                  <div class="job-card-tags" v-if="(job.tags && job.tags.length > 0) || job.status === 'expired' || job.status === 'closed' || job.isHidden || job.normalizedData?.isHeadhunter">
+                  <div class="job-card-tags" v-if="(job.tags && job.tags.length > 0) || job.status === 'expired' || job.status === 'closed' || job.isHidden || job.isHeadhunter || job.normalizedData?.isHeadhunter">
                     <el-tag v-if="job.status === 'expired' || job.status === 'closed'" size="small" type="danger" effect="dark" style="border: none; padding: 0 6px; height: 20px; line-height: 20px;">失效</el-tag>
                     <el-tag v-if="job.isHidden" size="small" type="info" effect="dark" style="border: none; padding: 0 6px; height: 20px; line-height: 20px;">不合适</el-tag>
-                    <el-tag v-if="job.normalizedData?.isHeadhunter" size="small" color="#fce4ec" style="color: #c2185b; border: 1px solid #f8bbd0; padding: 0 6px; height: 20px; line-height: 20px;">
-                      代招公司<span v-if="job.normalizedData?.clientCompanyName">：{{ job.normalizedData.clientCompanyName }}</span>
+                    <el-tag v-if="job.isHeadhunter || job.normalizedData?.isHeadhunter" size="small" color="#fce4ec" style="color: #c2185b; border: 1px solid #f8bbd0; padding: 0 6px; height: 20px; line-height: 20px;">
+                      代招客户<span v-if="job.clientCompanyName || job.normalizedData?.clientCompanyName">：{{ job.clientCompanyName || job.normalizedData.clientCompanyName }}</span>
                     </el-tag>
                     <span class="job-tag" v-for="(t, idx) in job.tags" :key="idx">{{ t }}</span>
                   </div>

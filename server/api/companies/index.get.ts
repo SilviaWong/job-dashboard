@@ -243,7 +243,7 @@ export default defineEventHandler(async (event) => {
         businessDistrict: job.businessDistrict || '',
         address: job.address || '',
         isHeadhunter: !!job.isHeadhunter,
-        clientCompanyName: job.isHeadhunter ? job.companyFullName : '',
+        clientCompanyName: job.clientCompanyName || '',
         dataSource: job.dataSource || '',
         jobStatus: job.status || '',
         hrActiveStatus: job.hrActiveStatus || '',

@@ -147,11 +147,13 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
 
   // 再保存公司数据
   const meta = extractCompanyMetadata(job)
+  const cleanBrandIndustry = (typeof job.brandIndustry === 'string' && !/^\d+$/.test(job.brandIndustry.trim())) ? job.brandIndustry.trim() : ''
+  const cleanComIndustry = (typeof brandComInfo.industryName === 'string' && !/^\d+$/.test(brandComInfo.industryName.trim())) ? brandComInfo.industryName.trim() : ''
   const companyRawData = {
     companyId: companyId,
     companyFullName: cleanFullName || companyFullName,
     companyName: cleanName || companyName,
-    companyIndustry: meta.industry || (typeof job.brandIndustry === 'string' ? job.brandIndustry : '') || (typeof brandComInfo.industryName === 'string' ? brandComInfo.industryName : '') || '',
+    companyIndustry: meta.industry || cleanBrandIndustry || cleanComIndustry || '',
     companyScale: meta.scale || (typeof job.brandScaleName === 'string' ? job.brandScaleName : '') || (typeof brandComInfo.scaleName === 'string' ? brandComInfo.scaleName : '') || '',
     companyStage: meta.stage || (typeof job.brandStageName === 'string' ? job.brandStageName : '') || (typeof brandComInfo.stageName === 'string' ? brandComInfo.stageName : '') || '',
     sourcePlatform: 'Boss直聘'
@@ -175,11 +177,11 @@ export const processBossJob: JobProcessor = async (job, platform, prisma) => {
 
     // 第三步：执行入库操作
     if (existingCompany) {
-      // 场景 A：公司已存在，增量补齐原本缺失的结构化字段
+      // 场景 A：公司已存在，增量补齐原本缺失的结构化字段（若原 industry 为 0 或纯数字代码则允许覆盖）
       const needUpdate: any = {}
       if (!existingCompany.companyFullName && cleanFullName) needUpdate.companyFullName = cleanFullName
       if (!existingCompany.companyId && companyId) needUpdate.companyId = String(companyId)
-      if (!existingCompany.industry && meta.industry) needUpdate.industry = meta.industry
+      if ((!existingCompany.industry || /^\d+$/.test(String(existingCompany.industry).trim())) && meta.industry) needUpdate.industry = meta.industry
       if (!existingCompany.scale && meta.scale) needUpdate.scale = meta.scale
       if (!existingCompany.stage && meta.stage) needUpdate.stage = meta.stage
       if (!existingCompany.companyType && meta.companyType) needUpdate.companyType = meta.companyType

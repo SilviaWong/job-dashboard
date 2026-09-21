@@ -164,7 +164,7 @@
 
             <!-- Company -->
             <div class="job-company">
-              <span class="company-link">{{ job.normalizedData?.companyFullName || job.normalizedData?.brandName || job.companyName }}</span>
+              <span class="company-link">{{ job.companyName || job.normalizedData?.brandName || job.normalizedData?.companyFullName }}</span>
             </div>
 
             <!-- Tags -->
@@ -211,7 +211,7 @@
                 <span class="tag-item" v-for="(tag, idx) in job.normalizedData.welfareList.slice(0, 5)" :key="idx">{{ tag }}</span>
               </template>
               <!-- 猎头/代招标签，如果前面有其他标签，加一点间隔 -->
-              <span class="tag-item" style="background-color: #fce4ec; color: #c2185b; border: 1px solid #f8bbd0;" v-if="job.normalizedData?.isHeadhunter">猎头/代招</span> 
+              <span class="tag-item" style="background-color: #fce4ec; color: #c2185b; border: 1px solid #f8bbd0;" v-if="job.isHeadhunter || job.normalizedData?.isHeadhunter">猎头/代招<span v-if="job.clientCompanyName || job.normalizedData?.clientCompanyName"> ({{ job.clientCompanyName || job.normalizedData?.clientCompanyName }})</span></span> 
             </div>
 
             <!-- Meta Info & Lifecycle Timeline Tooltip -->
@@ -776,7 +776,9 @@ const copyJobInfo = async (job) => {
   if (!job) return
   try {
     const jobName = job.title || ''
-    const companyName = job.normalizedData?.clientCompanyName || job.normalizedData?.brandName || job.companyName || ''
+    const companyName = job.companyName || job.normalizedData?.brandName || ''
+    const clientCompany = job.clientCompanyName || job.normalizedData?.clientCompanyName || ''
+    const companyDisplay = clientCompany ? `${companyName} (代招客户：${clientCompany})` : companyName
     const experience = job.normalizedData?.experience || '不限'
     const degree = job.normalizedData?.degree || '不限'
     
@@ -788,7 +790,7 @@ const copyJobInfo = async (job) => {
       .replace(/\n{3,}/g, '\n\n')
       .trim()
       
-    const textToCopy = `职位名称：${jobName}\n所属公司：${companyName}\n经验：${experience}\n学历：${degree}\n\n岗位职责与要求：\n${desc}`
+    const textToCopy = `职位名称：${jobName}\n所属公司：${companyDisplay}\n经验：${experience}\n学历：${degree}\n\n岗位职责与要求：\n${desc}`
     
     await navigator.clipboard.writeText(textToCopy)
     ElMessage.success('职位信息已复制到剪贴板！')
