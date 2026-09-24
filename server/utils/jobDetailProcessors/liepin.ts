@@ -40,8 +40,35 @@ export async function processLiepinJobDetail(detail: any, rawPlatform: string, p
   }
 
   const jobTitle = detail['职位名称'] || detail.jobName || jobInfo.title || jdJson.title || ''
-  const companyName = cleanCompanyName(detail['公司名称'] || detail.companyName || compInfo.compName || compInfo.companyName || jdJson.hiringOrganization?.name || '')
-  const companyFullName = cleanCompanyName(detail['公司全称'] || detail.companyFullName || compInfo.fullCompanyName || compInfo.compFullName || jdJson.hiringOrganization?.name || companyName || '')
+  
+  // 猎聘网标识公司直招还是猎头/代招的字段：jobKind，1表示猎头/代招，2表示公司直招
+  const isHeadhunter = String(jobInfo.jobKind) === '1' || String(detail.jobKind) === '1' || detail['岗位类型_外包猎头'] === '猎头/代招' || detail.isHeadhunter === true
+  
+  // 提取招聘人所属猎头公司名称
+  let hrCoName = ''
+  const recruiterInfo = jdJson.supplementalDomData?.recruiterInfo || []
+  if (Array.isArray(recruiterInfo) && recruiterInfo.length > 0) {
+    const lastItem = recruiterInfo[recruiterInfo.length - 1]
+    if (typeof lastItem === 'string') {
+      hrCoName = lastItem.replace(/^·\s*/, '').trim()
+    }
+  }
+  const agencyName = cleanCompanyName(detail['HR所属公司'] || hrCoName || '')
+  const rawClientName = cleanCompanyName(detail['公司全称'] || detail['公司名称'] || compInfo.fullCompanyName || compInfo.compFullName || compInfo.compName || compInfo.companyName || jdJson.hiringOrganization?.name || '')
+
+  let companyName = ''
+  let companyFullName = ''
+  let clientCompanyName = ''
+
+  if (isHeadhunter) {
+    companyName = agencyName || rawClientName
+    companyFullName = agencyName || rawClientName
+    clientCompanyName = rawClientName
+  } else {
+    companyName = cleanCompanyName(detail['公司名称'] || detail.companyName || compInfo.compName || compInfo.companyName || jdJson.hiringOrganization?.name || '')
+    companyFullName = cleanCompanyName(detail['公司全称'] || detail.companyFullName || compInfo.fullCompanyName || compInfo.compFullName || jdJson.hiringOrganization?.name || companyName || '')
+  }
+
   const jobStatus = detail['招聘状态'] || detail.jobStatus || detail.status || (detail.isClosed ? '已下线' : '') || ''
 
   // 判断是否为异常/已下架页面：若职位名称、公司名称、公司全称均为空，说明页面已关闭或失效
@@ -106,16 +133,33 @@ export async function processLiepinJobDetail(detail: any, rawPlatform: string, p
   // =========================================================================
   // 第四步：联动更新 Job 职位表中的相关字段
   // =========================================================================
-  // 4.1 同步更新 Job 表中的公司全称 companyFullName
-  if (companyFullName) {
-    await prisma.job.updateMany({
-      where: { jobId: String(jobId), platform: standardizedPlatform },
-      data: {
-        companyFullName: companyFullName,
-        updatedAt: updatedAt
-      }
-    })
+  // 4.1 同步更新 Job 表中的公司名、公司全称与代招客户公司
+  const jobUpdateData: any = {
+    updatedAt: updatedAt
   }
+
+  if (isHeadhunter) {
+    jobUpdateData.isHeadhunter = true
+    if (agencyName) {
+      jobUpdateData.companyName = agencyName
+      jobUpdateData.companyFullName = agencyName
+    }
+    if (clientCompanyName) {
+      jobUpdateData.clientCompanyName = clientCompanyName
+    }
+  } else {
+    if (companyFullName) {
+      jobUpdateData.companyFullName = companyFullName
+    }
+    if (companyName) {
+      jobUpdateData.companyName = companyName
+    }
+  }
+
+  await prisma.job.updateMany({
+    where: { jobId: String(jobId), platform: standardizedPlatform },
+    data: jobUpdateData
+  })
 
   // 4.2 若职位已关闭或失效，同步更新 Job 表状态为 EXPIRED (已失效)
   if (
@@ -169,12 +213,15 @@ export async function processLiepinJobDetail(detail: any, rawPlatform: string, p
   // =========================================================================
   // 第五步：联动更新 Company 企业表（存储 rawData3 与补齐结构化字段）
   // =========================================================================
-  const companyId = detail['公司ID'] || detail.companyId || detail.compId || compInfo.compId || compInfo.companyId || compInfo.link?.match(/\/company\/(\d+)/)?.[1] || jdJson.hiringOrganization?.sameAs?.match(/\/company\/(\d+)/)?.[1] || ''
-  if (companyName || companyFullName || companyId) {
+  const targetCoName = isHeadhunter && agencyName ? agencyName : companyName
+  const targetCoFullName = isHeadhunter && agencyName ? agencyName : companyFullName
+  const companyId = !isHeadhunter ? (detail['公司ID'] || detail.companyId || detail.compId || compInfo.compId || compInfo.companyId || compInfo.link?.match(/\/company\/(\d+)/)?.[1] || jdJson.hiringOrganization?.sameAs?.match(/\/company\/(\d+)/)?.[1] || '') : ''
+
+  if (targetCoName || targetCoFullName || companyId) {
     try {
       await upsertCompanyFromDetail(prisma, {
-        companyName: companyName,
-        companyFullName: companyFullName,
+        companyName: targetCoName,
+        companyFullName: targetCoFullName,
         companyId: companyId ? String(companyId) : null,
         platform: standardizedPlatform,
         detailRaw: detail.companyCard || detail

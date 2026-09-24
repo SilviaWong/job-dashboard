@@ -40,11 +40,12 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
   // 猎聘网标识公司直招还是猎头/代招的字段：jobKind，1表示猎头/代招，2表示公司直招
   if (jobInfo.jobKind === '1' || jobInfo.jobKind == 1) {
     companyName = compInfo.fullCompanyName || hrCoName || ''
+    companyFullName = compInfo.fullCompanyName || hrCoName || ''
   } else {
     companyName = compInfo.compName || ''
+    companyFullName = compInfo.fullCompanyName || ''
   }
   companyId = compInfo.compId || extractedCompanyId || ''
-  companyFullName = compInfo.fullCompanyName || hrCoName || ''
 
   // 对公司名称和公司全称进行中文括号转英文括号，以及去除空格的处理
   const cleanName = cleanCompanyName(companyName)

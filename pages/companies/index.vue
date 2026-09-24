@@ -390,9 +390,14 @@ const toggleAgency = async (company) => {
       }
     })
     if (res.success) {
-      ElMessage.success('更新成功')
+      ElMessage.success(company.isAgency ? '已标记为代招/猎头' : '已标记为直招')
+      // 优化：在非 "all" 筛选下就地从当前列表中移除该企业，保留当前滚动高度与已加载内容
       if (agencyFilter.value !== 'all') {
-        fetchCompanies(false)
+        const index = companies.value.findIndex(c => c.companyName === company.companyName)
+        if (index !== -1) {
+          companies.value.splice(index, 1)
+          totalCompanies.value = Math.max(0, totalCompanies.value - 1)
+        }
       }
     } else {
       ElMessage.error(res.error || '更新失败')

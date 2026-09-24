@@ -33,7 +33,7 @@
             </div>
           
             <div class="detail-sub-header">
-              <span class="company-text"><el-icon><Building /></el-icon> {{ job.companyName || job.normalizedData?.brandName || '-' }}</span>
+              <span class="company-text"><el-icon><Building /></el-icon> {{ job.companyFullName || job.companyName || '-' }}</span>
               <template v-if="(job.isHeadhunter || job.normalizedData?.isHeadhunter) && (job.clientCompanyName || job.normalizedData?.clientCompanyName)">
                 <span class="divider">|</span>
                 <span class="client-company-sub">
