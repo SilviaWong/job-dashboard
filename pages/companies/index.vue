@@ -87,7 +87,15 @@
                     style="margin-right: 10px;"
                     title="勾选加入企业横向对比 (最多4家)"
                   />
-                  <span class="company-name" :class="{'is-agency-name': company.isAgency}">{{ company.companyName }}</span>
+                  <span class="company-name" :class="{'is-agency-name': company.isAgency}">
+                    {{ company.companyFullName || company.companyName }}
+                    <span 
+                      v-if="company.brandName && company.companyFullName && company.brandName !== company.companyFullName" 
+                      class="company-brand-sub"
+                    >
+                      ({{ company.brandName }})
+                    </span>
+                  </span>
                   <el-switch
                     v-model="company.isAgency"
                     inline-prompt
@@ -521,6 +529,13 @@ onUnmounted(() => {
 
 .is-agency-name {
   color: #c2185b;
+}
+
+.company-brand-sub {
+  font-weight: 500;
+  font-size: 14px;
+  color: #409eff;
+  margin-left: 6px;
 }
 
 .company-header-actions {

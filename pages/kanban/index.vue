@@ -35,7 +35,12 @@
             >
               <div class="card-content">
                 <div class="job-title">{{ job.title }}</div>
-                <div class="job-company">{{ job.companyName }}</div>
+                <div class="job-company" :title="job.companyFullName && job.companyFullName !== job.companyName ? `主体全称：${job.companyFullName}（品牌名：${job.companyName}）` : (job.companyFullName || job.companyName)">
+                  {{ job.companyFullName || job.companyName }}
+                  <span v-if="job.companyName && job.companyFullName && job.companyName !== job.companyFullName" class="company-brand-sub">
+                    ({{ job.companyName }})
+                  </span>
+                </div>
                 <div class="job-salary">{{ job.salary }}</div>
               </div>
             </el-card>
@@ -201,6 +206,11 @@ onMounted(() => {
   font-size: 12px;
   color: #909399;
   margin-bottom: 8px;
+}
+.company-brand-sub {
+  color: #409eff;
+  font-size: 11px;
+  margin-left: 2px;
 }
 .job-salary {
   font-size: 13px;

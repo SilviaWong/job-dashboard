@@ -164,7 +164,15 @@
 
             <!-- Company -->
             <div class="job-company">
-              <span class="company-link">{{ job.companyFullName || job.companyName }}</span>
+              <span class="company-link" :title="job.companyFullName && job.companyFullName !== job.companyName ? `主体全称：${job.companyFullName}（品牌名：${job.companyName}）` : (job.companyFullName || job.companyName)">
+                {{ job.companyFullName || job.companyName }}
+                <span 
+                  v-if="job.companyName && job.companyFullName && job.companyName !== job.companyFullName" 
+                  class="company-brand-sub"
+                >
+                  ({{ job.companyName }})
+                </span>
+              </span>
             </div>
 
             <!-- Tags -->
@@ -557,15 +565,105 @@ const handleDeleteJob = async (job) => {
 const handleBatchAiDiagnosis = async () => {
   if (batchAnalyzing.value) return
   
+  // 1. 检查是否处于“勾选特定职位”模式
+  const isSelectedMode = selectedJobIds.value.length > 0
+  
+  if (isSelectedMode) {
+    const selectedPendingJobs = jobList.value.filter(
+      job => selectedJobIds.value.includes(job.jobId) && 
+      (!job.aiResult || job.aiResult.score === null || job.aiResult.score === undefined)
+    )
+    
+    if (selectedPendingJobs.length === 0) {
+      ElMessage.info('所选职位均已完成诊断！')
+      return
+    }
+
+    try {
+      await ElMessageBox.confirm(
+        `准备开始批量诊断选中的 ${selectedPendingJobs.length} 个未诊断职位。支持并发处理（并发数: 5）。是否开始？`,
+        '批量 AI 诊断（选定职位）',
+        {
+          confirmButtonText: '开始诊断',
+          cancelButtonText: '取消',
+          type: 'info',
+        }
+      )
+    } catch {
+      return
+    }
+
+    batchAnalyzing.value = true
+    batchCancelled.value = false
+    let successCount = 0
+    let failCount = 0
+    const maxConcurrent = 5
+    const failedJobIds = new Set()
+
+    const processJob = async (job) => {
+      if (batchCancelled.value) return
+      analyzingIds.value.push(job.jobId)
+      try {
+        const res = await $fetch('/api/jobs/analyze', {
+          method: 'POST',
+          body: { jobId: job.jobId }
+        })
+        if (res && res.success && res.data) {
+          job.aiResult = res.data
+          successCount++
+        } else {
+          failedJobIds.add(job.jobId)
+          failCount++
+        }
+      } catch (e) {
+        console.error(e)
+        failedJobIds.add(job.jobId)
+        failCount++
+      } finally {
+        const index = analyzingIds.value.indexOf(job.jobId)
+        if (index > -1) analyzingIds.value.splice(index, 1)
+      }
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
+
+    let activePromises = []
+    const queue = [...selectedPendingJobs]
+
+    while (!batchCancelled.value && (queue.length > 0 || activePromises.length > 0)) {
+      while (activePromises.length < maxConcurrent && queue.length > 0) {
+        const job = queue.shift()
+        const p = processJob(job).finally(() => {
+          activePromises = activePromises.filter(item => item !== p)
+        })
+        activePromises.push(p)
+      }
+      if (activePromises.length > 0) {
+        await Promise.race(activePromises)
+      }
+    }
+
+    batchAnalyzing.value = false
+    selectedJobIds.value = []
+    if (batchCancelled.value) {
+      ElMessage.info(`批量诊断已取消。本次成功: ${successCount}，失败: ${failCount}。`)
+    } else if (failCount === 0) {
+      ElMessage.success(`选中的 ${successCount} 个职位已全部诊断完成！`)
+    } else {
+      ElMessage.warning(`选中职位诊断结束。成功: ${successCount}，失败: ${failCount}。`)
+    }
+    return
+  }
+
+  // 2. 全列表持续批量诊断模式（当前筛选视图下）
   const pendingJobs = jobList.value.filter(job => !job.aiResult || job.aiResult.score === null || job.aiResult.score === undefined)
   if (pendingJobs.length === 0 && !hasMore.value) {
-    ElMessage.info('所有职位都已诊断完毕！')
+    ElMessage.info('当前筛选视图下的所有职位都已诊断完毕！')
     return
   }
 
   try {
     await ElMessageBox.confirm(
-      `准备开始持续批量诊断。程序会自动向下翻页并诊断所有未处理的职位。支持并发处理（并发数: 5）。是否开始？（随时可点击右上角取消）`,
+      `准备开始持续批量诊断当前筛选视图下的所有未诊断职位。程序会自动向后拉取未诊断数据并并发处理（并发数: 5）。是否开始？（随时可点击右上角取消）`,
       '持续批量 AI 诊断',
       {
         confirmButtonText: '开始诊断',
@@ -582,6 +680,7 @@ const handleBatchAiDiagnosis = async () => {
   let successCount = 0
   let failCount = 0
   const maxConcurrent = 5
+  const failedJobIds = new Set()
 
   // 并发任务调度函数
   const processJob = async (job) => {
@@ -596,10 +695,12 @@ const handleBatchAiDiagnosis = async () => {
         job.aiResult = res.data
         successCount++
       } else {
+        failedJobIds.add(job.jobId)
         failCount++
       }
     } catch (e) {
       console.error(e)
+      failedJobIds.add(job.jobId)
       failCount++
     } finally {
       const index = analyzingIds.value.indexOf(job.jobId)
@@ -609,13 +710,63 @@ const handleBatchAiDiagnosis = async () => {
     await new Promise(resolve => setTimeout(resolve, 500))
   }
 
+  // 辅助函数：安全拉取下一批待诊断数据（解决未诊断筛选下的分页偏移与跳页早退缺陷）
+  const fetchNextPendingBatch = async () => {
+    try {
+      if (aiDiagnosisFilter.value === 'undiagnosed') {
+        // 当处于“未诊断”筛选下时，由于刚刚诊断成功的职位在数据库中已成为“已诊断”，
+        // 服务端的未诊断队列会自动向前位移。因此下一批未诊断职位始终位于 page = 1。
+        // 若递增 page，会导致跳过前页职位并因 (page*pageSize) >= total 提前早退！
+        const params = new URLSearchParams({
+          page: '1',
+          pageSize: String(pageSize.value),
+          status: statusFilter.value,
+          filterFavoritesOnly: String(filterFavoritesOnly.value),
+          filterShowHidden: String(filterShowHidden.value),
+          filterShowBlacklisted: String(filterShowBlacklisted.value),
+          filterMissingBossDetail: String(filterMissingBossDetail.value),
+          headhunterFilter: headhunterFilter.value,
+          platform: platformFilter.value,
+          education: educationFilter.value,
+          keyword: keywordFilter.value,
+          aiDiagnosisFilter: 'undiagnosed',
+          salaryFilter: salaryFilter.value,
+          lifecycleFilter: lifecycleFilter.value,
+          sortBy: sortBy.value,
+        })
+        const res = await $fetch(`/api/jobs?${params.toString()}`)
+        if (res && res.success && Array.isArray(res.data) && res.data.length > 0) {
+          const existingIds = new Set(jobList.value.map(j => j.id || j.jobId))
+          const newItems = res.data.filter(j => !existingIds.has(j.id || j.jobId))
+          if (newItems.length > 0) {
+            jobList.value = [...jobList.value, ...newItems]
+            total.value = res.total || 0
+            hasMore.value = res.total > 0
+            return true
+          }
+        }
+        hasMore.value = false
+        return false
+      } else {
+        // 常规全量视图下，已诊断和未诊断混排，正常通过 loadNextPage 向后翻页加载新职位
+        if (!hasMore.value) return false
+        const hasMoreData = await loadNextPage()
+        return !!hasMoreData
+      }
+    } catch (e) {
+      console.error('拉取下一批待诊断职位失败', e)
+      return false
+    }
+  }
+
   let activePromises = []
   
   while (!batchCancelled.value) {
-    // 找出尚未有结果，并且当前不在分析队列中的任务
+    // 找出尚未有结果，并且当前不在分析队列、未标记失败的任务
     const jobsToAnalyze = jobList.value.filter(job => 
       (!job.aiResult || job.aiResult.score === null || job.aiResult.score === undefined) && 
-      !analyzingIds.value.includes(job.jobId)
+      !analyzingIds.value.includes(job.jobId) &&
+      !failedJobIds.has(job.jobId)
     )
     
     if (jobsToAnalyze.length > 0) {
@@ -634,24 +785,15 @@ const handleBatchAiDiagnosis = async () => {
       }
     } else {
       if (activePromises.length > 0) {
-        // 当前页无剩余待分配任务，等待已有任务全部完成
+        // 当前页无剩余待分配任务，等待已有并发任务全部完成
         await Promise.all(activePromises)
       } else {
-        // 当前页全部完成，请求下一页
-        if (hasMore.value) {
-          try {
-            const hasMoreData = await loadNextPage()
-            if (!hasMoreData && !hasMore.value) {
-              break
-            }
-            await new Promise(resolve => setTimeout(resolve, 500))
-          } catch (e) {
-            console.error('加载下一页失败', e)
-            break
-          }
-        } else {
+        // 当前加载列表全部诊断完成，尝试拉取下一批
+        const hasMoreData = await fetchNextPendingBatch()
+        if (!hasMoreData) {
           break
         }
+        await new Promise(resolve => setTimeout(resolve, 500))
       }
     }
   }
@@ -660,7 +802,7 @@ const handleBatchAiDiagnosis = async () => {
   if (batchCancelled.value) {
     ElMessage.info(`批量诊断已取消。本次成功: ${successCount}，失败: ${failCount}。`)
   } else if (failCount === 0) {
-    ElMessage.success(`批量诊断全部完成！成功诊断 ${successCount} 个职位。`)
+    ElMessage.success(`批量诊断全部完成！当前视图下成功诊断 ${successCount} 个职位。`)
   } else {
     ElMessage.warning(`批量诊断结束。成功: ${successCount}，失败: ${failCount}。`)
   }
@@ -680,9 +822,15 @@ const handleBatchOpenUrls = async () => {
     return
   }
 
+  // 1. 如果有复选框勾选的职位，优先打开选中的职位
+  const hasSelection = selectedJobIds.value.length > 0
+  const confirmMsg = hasSelection
+    ? `准备批量打开已勾选的 ${selectedJobIds.value.length} 个职位原网页。程序会以随机间隔（约 1.5 ~ 3.5 秒）依次打开网页，各标签页在加载后保留随机时间（约 2 ~ 4.5 秒）自动关闭。是否开始？（随时可取消）`
+    : `准备开始批量打开原网页。程序会自动向下翻页并打开网页，每次打开间隔随机（约 1.5 ~ 3.5 秒），标签页会在加载后保留随机时间（约 2 ~ 4.5 秒）自动关闭。是否开始？（随时可点击右上角取消）`
+
   try {
     await ElMessageBox.confirm(
-      `准备开始批量打开原网页。程序会自动向下翻页并打开网页，每次打开间隔 2 秒，标签页会在加载后保留 5 秒自动关闭。是否开始？（随时可点击右上角取消）`,
+      confirmMsg,
       '批量打开原网页',
       {
         confirmButtonText: '开始打开',
@@ -699,7 +847,11 @@ const handleBatchOpenUrls = async () => {
   let openCount = 0
 
   while (!batchOpenCancelled.value) {
-    const jobsToOpen = jobList.value.filter(job => !job._hasOpened)
+    const jobsToOpen = jobList.value.filter(job => {
+      if (job._hasOpened) return false
+      if (hasSelection) return selectedJobIds.value.includes(job.id || job.jobId)
+      return true
+    })
     
     if (jobsToOpen.length > 0) {
       const job = jobsToOpen[0]
@@ -715,32 +867,25 @@ const handleBatchOpenUrls = async () => {
       const originalUrl = job.normalizedData?.jobUrl || job.jobUrl
       if (originalUrl) {
         const separator = originalUrl.includes('?') ? '&' : '?'
-        const autoCloseUrl = originalUrl + separator + 'auto_close=1'
+        // 随机关闭时间：2000ms ~ 4500ms（2 ~ 4.5 秒，时间不要太久）
+        const closeDelay = Math.floor(Math.random() * (4500 - 2000 + 1)) + 2000
+        const autoCloseUrl = `${originalUrl}${separator}auto_close=1&close_delay=${closeDelay}`
         
         // 发送消息给浏览器扩展，由扩展真正在后台静默打开新标签页
         window.postMessage({ 
           action: 'OPEN_BACKGROUND_TAB', 
-          url: autoCloseUrl 
+          url: autoCloseUrl,
+          closeDelay
         }, '*')
       }
       
-      if (openCount % 20 === 0) {
-        const pauseSeconds = Math.floor(Math.random() * (5 * 60 - 3 * 60 + 1)) + 3 * 60;
-        ElMessage.warning(`已连续打开 20 个网页，防反爬暂停 ${Math.floor(pauseSeconds / 60)}分${pauseSeconds % 60}秒...`);
-        
-        for (let i = 0; i < pauseSeconds; i++) {
-          if (batchOpenCancelled.value) break;
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-        
-        if (!batchOpenCancelled.value) {
-          ElMessage.success(`暂停结束，继续打开...`);
-        }
-      } else {
-        // 等待 2 秒后再打开下一个
-        await new Promise(resolve => setTimeout(resolve, 2000))
-      }
+      // 等待随机间隔后再打开下一个：1500ms ~ 3500ms（1.5 ~ 3.5 秒，时间不要太久且有随机抖动）
+      const openInterval = Math.floor(Math.random() * (3500 - 1500 + 1)) + 1500
+      await new Promise(resolve => setTimeout(resolve, openInterval))
     } else {
+      if (hasSelection) {
+        break
+      }
       if (hasMore.value) {
         try {
           const hasMoreData = await loadNextPage()
@@ -776,9 +921,11 @@ const copyJobInfo = async (job) => {
   if (!job) return
   try {
     const jobName = job.title || ''
-    const companyName = job.companyName || job.normalizedData?.brandName || ''
+    const fullName = job.companyFullName || job.normalizedData?.companyFullName || ''
+    const brandName = job.companyName || job.normalizedData?.brandName || ''
+    const companyBase = fullName && brandName && fullName !== brandName ? `${fullName} (${brandName})` : (fullName || brandName || '')
     const clientCompany = job.clientCompanyName || job.normalizedData?.clientCompanyName || ''
-    const companyDisplay = clientCompany ? `${companyName} (代招客户：${clientCompany})` : companyName
+    const companyDisplay = clientCompany ? `${companyBase} (代招客户：${clientCompany})` : companyBase
     const experience = job.normalizedData?.experience || '不限'
     const degree = job.normalizedData?.degree || '不限'
     
@@ -821,7 +968,9 @@ const toggleFavorite = async (job) => {
 }
 
 const toggleBlacklist = async (job) => {
-  const comp = job.normalizedData?.companyFullName || job.normalizedData?.brandName || job.companyName
+  const fullName = job.companyFullName || job.normalizedData?.companyFullName || ''
+  const brandName = job.companyName || job.normalizedData?.brandName || ''
+  const comp = fullName || brandName
   if (!comp) {
     ElMessage.warning('未获取到该职位的公司名称')
     return
@@ -835,8 +984,10 @@ const toggleBlacklist = async (job) => {
       })
       if (res && res.success) {
         ElMessage.success(`已将【${comp}】移出黑名单`)
+        const matchNames = new Set([brandName, fullName, comp].filter(Boolean))
         jobList.value.forEach(j => {
-          if (j.companyName === comp || j.normalizedData?.companyFullName === comp) {
+          const jNames = [j.companyName, j.companyFullName, j.normalizedData?.companyFullName, j.normalizedData?.brandName].filter(Boolean)
+          if (jNames.some(n => matchNames.has(n))) {
             j.isBlacklisted = false
           }
         })
@@ -845,18 +996,21 @@ const toggleBlacklist = async (job) => {
         ElMessage.error(res?.error || '操作失败')
       }
     } else {
+      const reason = brandName && brandName !== comp ? `用户手动拉黑 (品牌: ${brandName})` : '用户手动拉黑'
       const res = await $fetch('/api/blacklist', {
         method: 'POST',
         body: {
           companyName: comp,
-          reason: '用户手动拉黑',
+          reason,
           source: 'manual'
         }
       })
       if (res && res.success) {
         ElMessage.success(`已将【${comp}】加入企业黑名单`)
+        const matchNames = new Set([brandName, fullName, comp].filter(Boolean))
         jobList.value.forEach(j => {
-          if (j.companyName === comp || j.normalizedData?.companyFullName === comp) {
+          const jNames = [j.companyName, j.companyFullName, j.normalizedData?.companyFullName, j.normalizedData?.brandName].filter(Boolean)
+          if (jNames.some(n => matchNames.has(n))) {
             j.isBlacklisted = true
           }
         })
@@ -1325,6 +1479,12 @@ onUnmounted(() => {
 }
 .company-link:hover {
   text-decoration: underline;
+}
+.company-brand-sub {
+  font-size: 13px;
+  font-weight: 500;
+  color: #409eff;
+  margin-left: 4px;
 }
 
 .job-tags {

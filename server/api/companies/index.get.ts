@@ -1,5 +1,6 @@
 import { getPrisma } from '#prisma'
 import { normalizeJobData } from '../../utils/jobNormalizer'
+import { cleanCompanyName } from '../../utils/companyProcessors/types'
 
 export default defineEventHandler(async (event) => {
   const prisma = getPrisma(event)
@@ -77,119 +78,100 @@ export default defineEventHandler(async (event) => {
 
     // 1.3 获取公司黑名单集合（完成基础准备）
 
-    // 2. 构建并查集 (DSU) 合并公司名称和全称相同的记录
-    const dsu = {
-      parent: {} as Record<string, string>,
-      find(i: string): string {
-        if (this.parent[i] === undefined) {
-          this.parent[i] = i;
-        }
-        if (this.parent[i] === i) {
-          return i;
-        }
-        return this.parent[i] = this.find(this.parent[i]);
-      },
-      union(alias: string, fullName: string) {
-        const rootAlias = this.find(alias);
-        const rootFullName = this.find(fullName);
-        if (rootAlias !== rootFullName) {
-          // 强制使用 fullName 所在的集合作为根节点
-          this.parent[rootAlias] = rootFullName;
-        }
-      }
-    };
-
-    for (const job of jobs) {
-      if (job.companyName && job.companyName !== '未知公司') {
-        if (job.companyFullName && job.companyFullName !== '未知公司') {
-          dsu.union(job.companyName, job.companyFullName);
-        }
-      }
-    }
-
-    // 获取所有 Company 的详细信息，并加入并查集
+    // 2. 规范化与企业映射构建：获取所有 Company 结构化工商信息
     const companiesData = await prisma.company.findMany()
-    for (const c of companiesData) {
-      if (c.companyName && c.companyName !== '未知公司') {
-        if (c.companyFullName && c.companyFullName !== '未知公司') {
-          dsu.union(c.companyName, c.companyFullName);
-        }
-      }
-    }
+    const companyMap = new Map<string, any>()
 
-    const companyMap = new Map()
     for (const c of companiesData) {
-      if (!c.companyName || c.companyName === '未知公司') continue;
-      const canonicalName = dsu.find(c.companyName);
-      if (!companyMap.has(canonicalName)) {
-        companyMap.set(canonicalName, {
-          companyName: canonicalName,
-          companyFullName: c.companyFullName,
-          sourcePlatform: c.sourcePlatform,
-          companyId: c.companyId,
-          isAgency: c.isAgency,
-          industry: c.industry,
-          scale: c.scale,
-          stage: c.stage,
-          companyType: c.companyType,
-          creditCode: c.creditCode,
-          logo: c.logo,
-          welfareList: c.welfareList ? (() => { try { return JSON.parse(c.welfareList) } catch { return [] } })() : [],
-          rawData: c.rawData ? JSON.parse(c.rawData) : null,
-          rawData2: c.rawData2 ? JSON.parse(c.rawData2) : null,
-          rawData3: c.rawData3 ? JSON.parse(c.rawData3) : null,
-        })
+      const cleanFull = cleanCompanyName(c.companyFullName)
+      const cleanName = cleanCompanyName(c.companyName)
+      const key = cleanFull || cleanName
+      if (!key || key === '未知公司') continue
+
+      const parsedCompany = {
+        companyName: key,
+        companyFullName: cleanFull || cleanName,
+        brandName: (cleanName && cleanName !== cleanFull) ? cleanName : '',
+        sourcePlatform: c.sourcePlatform,
+        companyId: c.companyId,
+        isAgency: c.isAgency,
+        industry: c.industry,
+        scale: c.scale,
+        stage: c.stage,
+        companyType: c.companyType,
+        creditCode: c.creditCode,
+        logo: c.logo,
+        welfareList: c.welfareList ? (() => { try { return JSON.parse(c.welfareList) } catch { return [] } })() : [],
+        rawData: c.rawData ? (() => { try { return JSON.parse(c.rawData) } catch { return null } })() : null,
+        rawData2: c.rawData2 ? (() => { try { return JSON.parse(c.rawData2) } catch { return null } })() : null,
+        rawData3: c.rawData3 ? (() => { try { return JSON.parse(c.rawData3) } catch { return null } })() : null,
+      }
+
+      if (!companyMap.has(key)) {
+        companyMap.set(key, parsedCompany)
       } else {
-        const existing = companyMap.get(canonicalName);
-        if (c.isAgency) {
-          existing.isAgency = true;
+        const existing = companyMap.get(key)
+        if (c.isAgency) existing.isAgency = true
+        if (!existing.creditCode && c.creditCode) existing.creditCode = c.creditCode
+        if (!existing.industry && c.industry) existing.industry = c.industry
+        if (!existing.scale && c.scale) existing.scale = c.scale
+        if (!existing.stage && c.stage) existing.stage = c.stage
+        if (!existing.companyType && c.companyType) existing.companyType = c.companyType
+        if (!existing.logo && c.logo) existing.logo = c.logo
+        if ((!existing.brandName || existing.brandName === key) && cleanName && cleanName !== key) {
+          existing.brandName = cleanName
         }
-        if (!existing.companyFullName && c.companyFullName) existing.companyFullName = c.companyFullName;
-        if (!existing.industry && c.industry) existing.industry = c.industry;
-        if (!existing.scale && c.scale) existing.scale = c.scale;
-        if (!existing.stage && c.stage) existing.stage = c.stage;
-        if (!existing.companyType && c.companyType) existing.companyType = c.companyType;
-        if (!existing.creditCode && c.creditCode) existing.creditCode = c.creditCode;
-        if (!existing.logo && c.logo) existing.logo = c.logo;
-        if ((!existing.welfareList || existing.welfareList.length === 0) && c.welfareList) {
-          try { existing.welfareList = JSON.parse(c.welfareList) } catch { }
+        if ((!existing.welfareList || existing.welfareList.length === 0) && parsedCompany.welfareList?.length > 0) {
+          existing.welfareList = parsedCompany.welfareList
         }
-        if (!existing.rawData && c.rawData) {
-          existing.rawData = JSON.parse(c.rawData);
-          existing.sourcePlatform = c.sourcePlatform;
-          existing.companyId = c.companyId;
-        }
-        if (!existing.rawData2 && c.rawData2) {
-          existing.rawData2 = JSON.parse(c.rawData2);
-        }
-        if (!existing.rawData3 && c.rawData3) {
-          existing.rawData3 = JSON.parse(c.rawData3);
-        }
+        if (!existing.rawData && parsedCompany.rawData) existing.rawData = parsedCompany.rawData
+        if (!existing.rawData2 && parsedCompany.rawData2) existing.rawData2 = parsedCompany.rawData2
+        if (!existing.rawData3 && parsedCompany.rawData3) existing.rawData3 = parsedCompany.rawData3
+      }
+
+      // 如果有简写品牌名，也建立索引便于通过简称反查到工商信息
+      if (cleanName && cleanName !== key && !companyMap.has(cleanName)) {
+        companyMap.set(cleanName, companyMap.get(key))
       }
     }
 
-    // 3. 聚合：以 Canonical companyName 为 Key
-    const resultNodes = new Map()
+    // 3. 聚合职位：以主体全称（品牌名）为维度组织企业节点
+    const resultNodes = new Map<string, any>()
 
     for (const job of jobs) {
-      const compName = job.companyName
+      const cleanFull = cleanCompanyName(job.companyFullName)
+      const cleanBrand = cleanCompanyName(job.companyName)
+      const nodeKey = cleanFull || cleanBrand
       const platform = job.platform
-      if (!compName || compName === '未知公司' || !platform) continue
-
-      const nodeKey = dsu.find(compName)
+      if (!nodeKey || nodeKey === '未知公司' || !platform) continue
 
       if (!resultNodes.has(nodeKey)) {
-        // 如果在 Company 表里有该公司记录，就拿过来用；如果没有，就建一个只有名称的壳
-        const baseCompany = companyMap.get(nodeKey) || { companyName: nodeKey, sourcePlatform: platform, isAgency: false, rawData: null }
+        const baseCompany = companyMap.get(nodeKey) || companyMap.get(cleanBrand) || {
+          companyName: nodeKey,
+          companyFullName: cleanFull || nodeKey,
+          brandName: (cleanBrand && cleanBrand !== nodeKey) ? cleanBrand : '',
+          sourcePlatform: platform,
+          isAgency: false,
+          rawData: null
+        }
+
+        const brandName = (cleanBrand && cleanBrand !== nodeKey) ? cleanBrand : (baseCompany.brandName || '')
 
         resultNodes.set(nodeKey, {
           ...baseCompany,
+          companyName: nodeKey,
+          companyFullName: cleanFull || nodeKey,
+          brandName: brandName,
           jobs: [],
-          platformSources: new Set()
+          platformSources: new Set<string>()
         })
       }
 
       const node = resultNodes.get(nodeKey)
+
+      if (cleanBrand && cleanBrand !== nodeKey && (!node.brandName || node.brandName === nodeKey)) {
+        node.brandName = cleanBrand
+      }
 
       // 添加平台来源
       if (job.platform) {
@@ -263,7 +245,7 @@ export default defineEventHandler(async (event) => {
         normalizedData: normalizedData,
         aiResult: aiResultMap[job.jobId] || null,
         company: companyWithoutRawData,
-        isBlacklisted: blacklistedSet.has(job.companyName) || (job.companyFullName && blacklistedSet.has(job.companyFullName)) || blacklistedSet.has(nodeKey)
+        isBlacklisted: blacklistedSet.has(job.companyName) || (job.companyFullName && blacklistedSet.has(job.companyFullName)) || (job.clientCompanyName && blacklistedSet.has(job.clientCompanyName)) || blacklistedSet.has(nodeKey)
       })
     }
 
@@ -296,10 +278,13 @@ export default defineEventHandler(async (event) => {
 
     if (searchStr) {
       finalArray = finalArray.filter(c =>
-        c.companyName.toLowerCase().includes(searchStr) ||
+        (c.companyName && c.companyName.toLowerCase().includes(searchStr)) ||
+        (c.companyFullName && c.companyFullName.toLowerCase().includes(searchStr)) ||
+        (c.brandName && c.brandName.toLowerCase().includes(searchStr)) ||
         c.jobs.some((j: any) =>
           (j.companyName && j.companyName.toLowerCase().includes(searchStr)) ||
-          (j.companyFullName && j.companyFullName.toLowerCase().includes(searchStr))
+          (j.companyFullName && j.companyFullName.toLowerCase().includes(searchStr)) ||
+          (j.clientCompanyName && j.clientCompanyName.toLowerCase().includes(searchStr))
         )
       )
     }

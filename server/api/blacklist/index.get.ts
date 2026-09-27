@@ -33,18 +33,27 @@ export default defineEventHandler(async (event) => {
     let jobCountMap: Record<string, number> = {}
 
     if (companyNames.length > 0) {
-      const jobCounts = await prisma.job.groupBy({
-        by: ['companyName'],
+      const jobs = await prisma.job.findMany({
         where: {
-          companyName: { in: companyNames }
+          OR: [
+            { companyName: { in: companyNames } },
+            { companyFullName: { in: companyNames } },
+            { clientCompanyName: { in: companyNames } }
+          ]
         },
-        _count: {
-          _all: true
+        select: {
+          companyName: true,
+          companyFullName: true,
+          clientCompanyName: true
         }
       })
 
-      jobCounts.forEach(c => {
-        jobCountMap[c.companyName] = c._count._all
+      jobs.forEach(j => {
+        companyNames.forEach(name => {
+          if (j.companyName === name || j.companyFullName === name || j.clientCompanyName === name) {
+            jobCountMap[name] = (jobCountMap[name] || 0) + 1
+          }
+        })
       })
     }
 

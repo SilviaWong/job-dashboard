@@ -71,6 +71,7 @@ export default defineEventHandler(async (event) => {
         OR: [
           { title: { contains: keyword } },
           { companyName: { contains: keyword } },
+          { companyFullName: { contains: keyword } },
           { clientCompanyName: { contains: keyword } }
         ]
       })
@@ -166,11 +167,7 @@ export default defineEventHandler(async (event) => {
       missingBossDetailSet = new Set(bossDetails.map(d => d.jobId))
     }
 
-    if (andConditions.length > 0) {
-      whereClause.AND = andConditions
-    }
-
-    // Pre-fetch blacklisted companies for DB-level filtering if needed
+    // Pre-fetch blacklisted companies for DB-level filtering if needed (双向穿透：同时检查品牌名、工商全称与代招公司)
     let blacklistedSet = new Set<string>()
     if (!filterShowBlacklisted) {
       const blacklisted = await prisma.blacklistedCompany.findMany({
@@ -178,7 +175,19 @@ export default defineEventHandler(async (event) => {
       })
       const blacklistedNames = blacklisted.map(b => b.companyName)
       if (blacklistedNames.length > 0) {
-        whereClause.companyName = { notIn: blacklistedNames }
+        andConditions.push({
+          companyName: { notIn: blacklistedNames },
+          OR: [
+            { companyFullName: null },
+            { companyFullName: { notIn: blacklistedNames } }
+          ]
+        })
+        andConditions.push({
+          OR: [
+            { clientCompanyName: null },
+            { clientCompanyName: { notIn: blacklistedNames } }
+          ]
+        })
       }
       blacklistedSet = new Set(blacklistedNames)
     } else {
@@ -186,6 +195,10 @@ export default defineEventHandler(async (event) => {
         select: { companyName: true }
       })
       blacklistedSet = new Set(blacklisted.map(b => b.companyName))
+    }
+
+    if (andConditions.length > 0) {
+      whereClause.AND = andConditions
     }
 
     let totalJobs = 0
@@ -401,7 +414,9 @@ export default defineEventHandler(async (event) => {
         normalizedData: normalizedData,
         aiResult: aiResultMap[job.jobId] || null,
         company: companyWithoutRawData,
-        isBlacklisted: blacklistedSet.has(job.companyName)
+        isBlacklisted: blacklistedSet.has(job.companyName) || 
+          (job.companyFullName ? blacklistedSet.has(job.companyFullName) : false) || 
+          (job.clientCompanyName ? blacklistedSet.has(job.clientCompanyName) : false)
       }
     })
 

@@ -44,7 +44,12 @@ export default defineEventHandler(async (event) => {
   try {
     // 1. Fetch Job
     const job = await prisma.job.findFirst({
-      where: { jobId }
+      where: { jobId },
+      include: {
+        detailPayload: {
+          select: { jobDesc: true }
+        }
+      }
     })
 
     if (!job) {
@@ -94,6 +99,10 @@ export default defineEventHandler(async (event) => {
       default:
         jobDescription = rawData.jobDescription || ''
         break
+    }
+
+    if (!jobDescription || jobDescription.trim() === '') {
+      jobDescription = job.detailPayload?.jobDesc || rawData.jobDescription || rawData.jobDesc || ''
     }
 
     const prompt = `
