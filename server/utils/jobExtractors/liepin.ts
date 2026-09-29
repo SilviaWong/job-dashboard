@@ -1,5 +1,5 @@
 import type { JobProcessor } from './types'
-import { cleanCompanyName, extractCompanyMetadata } from '../companyProcessors/types'
+import { cleanCompanyName, extractCompanyMetadata, resolveCompanyFullName, isCorporateName } from '../companyProcessors/types'
 import { computeDescHash } from '../descHash'
 import { resolveJobHrActive } from '../hrAnalytics'
 import { extractStructuredAndPayload, syncJobDetailPayload } from '../jobDualWriter'
@@ -49,7 +49,8 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
 
   // 对公司名称和公司全称进行中文括号转英文括号，以及去除空格的处理
   const cleanName = cleanCompanyName(companyName)
-  const cleanFullName = cleanCompanyName(companyFullName)
+  const detailFullName = job['公司全称'] || jobDetailJson?.hiringOrganization?.name || compInfo.fullCompanyName || compInfo.compFullName || ''
+  const listFullName = cleanCompanyName(companyFullName)
 
   const stringifiedData = JSON.stringify(job)
   const createdAt = new Date()
@@ -58,11 +59,38 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
   const hr = resolveJobHrActive(job, null, platform)
   const { structuredJobData, payloadData } = extractStructuredAndPayload(job, platform, stringifiedData)
 
+  // 检查已有职位指纹与现有全称（用于变动检测与全称防降级保护）
+  const existingJob = await prisma.job.findUnique({
+    where: {
+      jobId_platform: {
+        jobId: String(jobId),
+        platform: platform
+      }
+    },
+    select: {
+      descHash: true,
+      salary: true,
+      title: true,
+      companyFullName: true
+    }
+  })
+
+  // 阶梯式解析公司全称（Company表优先 -> 职位详情 -> 列表兜底，外加防降级保护与反哺）
+  const { finalFullName, existingCompany: resolvedCompany } = await resolveCompanyFullName({
+    prisma,
+    platform: '猎聘',
+    companyId: companyId ? String(companyId) : null,
+    cleanName,
+    detailFullName,
+    listFullName,
+    existingJobFullName: existingJob?.companyFullName
+  })
+
   // 组装职位更新数据
   const updateData: any = {
     title: String(jobTitle),
     companyName: cleanName,
-    companyFullName: cleanFullName,
+    companyFullName: finalFullName,
     companyId: companyId ? String(companyId) : null,
     salary: String(salary),
     location: String(location),
@@ -81,7 +109,7 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
     jobId: String(jobId),
     title: String(jobTitle),
     companyName: cleanName,
-    companyFullName: cleanFullName,
+    companyFullName: finalFullName,
     companyId: companyId ? String(companyId) : null,
     salary: String(salary),
     location: String(location),
@@ -98,30 +126,6 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
     rawData: stringifiedData,
     ...structuredJobData
   }
-
-  // if (useRawData2) {
-  //   updateData.rawData2 = stringifiedData
-  //   createData.rawData2 = stringifiedData
-  //   createData.rawData = '{}'
-  // } else {
-  //   updateData.rawData = stringifiedData
-  //   createData.rawData = stringifiedData
-  // }
-
-  // 检查已有职位指纹与薪资变化
-  const existingJob = await prisma.job.findUnique({
-    where: {
-      jobId_platform: {
-        jobId: String(jobId),
-        platform: platform
-      }
-    },
-    select: {
-      descHash: true,
-      salary: true,
-      title: true
-    }
-  })
 
   let isChanged = false
   let changeReason = ''
@@ -168,7 +172,7 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
     ...compInfo,
     companyId: companyId || compInfo.compId,
     companyName: cleanName || compInfo.compName,
-    companyFullName: cleanFullName || compInfo.compFullName,
+    companyFullName: finalFullName,
     companyIndustry: meta.industry || compInfo.compIndustry || '',
     companyScale: meta.scale || compInfo.compScale || '',
     companyStage: meta.stage || compInfo.compStage || '',
@@ -176,10 +180,10 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
   }
 
   if (cleanName || companyId) {
-    let existingCompany = null
+    let existingCompany = resolvedCompany
 
-    // 第一步：尝试通过公司 ID 查找（最准确）
-    if (companyId) {
+    // 第一步：如果之前未查到，尝试通过公司 ID 查找（最准确）
+    if (!existingCompany && companyId) {
       existingCompany = await prisma.company.findFirst({
         where: { companyId: String(companyId), sourcePlatform: '猎聘' }
       })
@@ -195,7 +199,9 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
     if (existingCompany) {
       // 场景 A：公司已存在，增量补齐原本缺失的结构化字段
       const needUpdate: any = {}
-      if (!existingCompany.companyFullName && cleanFullName) needUpdate.companyFullName = cleanFullName
+      if ((!existingCompany.companyFullName || (!isCorporateName(existingCompany.companyFullName) && isCorporateName(finalFullName))) && finalFullName) {
+        needUpdate.companyFullName = finalFullName
+      }
       if (!existingCompany.companyId && companyId) needUpdate.companyId = String(companyId)
       if (!existingCompany.industry && meta.industry) needUpdate.industry = meta.industry
       if (!existingCompany.scale && meta.scale) needUpdate.scale = meta.scale
@@ -217,7 +223,7 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
         await prisma.company.create({
           data: {
             companyName: cleanName,
-            companyFullName: cleanFullName ? String(cleanFullName) : undefined,
+            companyFullName: finalFullName ? String(finalFullName) : undefined,
             sourcePlatform: '猎聘',
             companyId: companyId ? String(companyId) : undefined,
             industry: meta.industry || undefined,
@@ -235,7 +241,9 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
           })
           if (newlyInserted) {
             const needUpdate: any = {}
-            if (!newlyInserted.companyFullName && cleanFullName) needUpdate.companyFullName = cleanFullName
+            if ((!newlyInserted.companyFullName || (!isCorporateName(newlyInserted.companyFullName) && isCorporateName(finalFullName))) && finalFullName) {
+              needUpdate.companyFullName = finalFullName
+            }
             if (!newlyInserted.companyId && companyId) needUpdate.companyId = String(companyId)
             if (!newlyInserted.industry && meta.industry) needUpdate.industry = meta.industry
             if (!newlyInserted.scale && meta.scale) needUpdate.scale = meta.scale

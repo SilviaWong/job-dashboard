@@ -37,6 +37,153 @@ export function cleanCompanyName(str: any): string {
 }
 
 /**
+ * 判断名称是否具备公司/企事业单位的法定特征词（如有限公司、集团、事务所、中心等）
+ */
+export function isCorporateName(name?: string | null): boolean {
+  if (!name || typeof name !== 'string') return false
+  const trimmed = name.trim()
+  return /公司|有限|集团|事务所|中心|分行|支行|代表处|合伙企业|研究院|学院|机构|局|厂|院/i.test(trimmed)
+}
+
+/**
+ * 校验并决定是否保留已有的公司全称（防降级覆盖策略）
+ * - 若已有全称具备法定特征词，而新提取的全称只是品牌/简称，坚决保留旧全称；
+ * - 若已有全称显著比新全称更长更详细，且新全称仅是简短名称，坚决保留旧全称；
+ * - 其余情况采用新全称。
+ */
+export function chooseBestCompanyFullName(
+  newFullName?: string | null,
+  oldFullName?: string | null,
+  cleanName?: string | null
+): string {
+  const cleanNew = (newFullName || '').trim()
+  const cleanOld = (oldFullName || '').trim()
+  const cleanBase = (cleanName || '').trim()
+
+  if (!cleanOld) return cleanNew
+  if (!cleanNew) return cleanOld
+  if (cleanNew === cleanOld) return cleanNew
+
+  // 防降级保护：如果旧全称具备公司法定特征词，而新全称只是品牌/简称（不具备特征词或等同于简称）
+  if (isCorporateName(cleanOld) && !isCorporateName(cleanNew)) {
+    return cleanOld
+  }
+
+  // 如果旧全称显著比新全称更长更详细，且新全称仅是简短名称
+  if (cleanOld.length > cleanNew.length && (cleanNew === cleanBase || !isCorporateName(cleanNew))) {
+    return cleanOld
+  }
+
+  return cleanNew
+}
+
+export interface ResolveCompanyFullNameParams {
+  prisma: any
+  platform: string
+  companyId?: string | null
+  cleanName?: string | null
+  detailFullName?: string | null
+  listFullName?: string | null
+  existingJobFullName?: string | null
+}
+
+export interface ResolveCompanyFullNameResult {
+  finalFullName: string
+  existingCompany: any | null
+}
+
+/**
+ * 阶梯式解析公司全称（瀑布流策略）：
+ * 优先级 1: Company 表中已存在的权威全称（优先考虑具备公司法定特征词的全称）
+ * 优先级 2: 职位详情（jobDetail / brandComInfo / companyCard 等）提取的工商全称
+ * 优先级 3: 列表页提取的候选全称 / 简称
+ * 兜底与保护: 对比已有的职位全称（existingJobFullName），执行防降级保护；若获取到了更优全称且 Company 表缺失，自动触发异步反哺
+ */
+export async function resolveCompanyFullName(
+  params: ResolveCompanyFullNameParams
+): Promise<ResolveCompanyFullNameResult> {
+  const {
+    prisma,
+    platform,
+    companyId,
+    cleanName,
+    detailFullName,
+    listFullName,
+    existingJobFullName
+  } = params
+
+  const cleanDetail = cleanCompanyName(detailFullName || '')
+  const cleanList = cleanCompanyName(listFullName || cleanName || '')
+  const baseName = cleanCompanyName(cleanName || '')
+
+  // 1. 查询 Company 表记录
+  let existingCompany = null
+  if (companyId) {
+    existingCompany = await prisma.company.findFirst({
+      where: { companyId: String(companyId), sourcePlatform: platform }
+    })
+  }
+  if (!existingCompany && baseName) {
+    existingCompany = await prisma.company.findFirst({
+      where: { companyName: baseName, sourcePlatform: platform }
+    })
+  }
+
+  const companyTableFullName = cleanCompanyName(existingCompany?.companyFullName || '')
+
+  // 2. 阶梯裁决候选全称
+  let candidateFullName = ''
+
+  // 优先级 1: 如果 Company 表有全称
+  if (companyTableFullName) {
+    // 如果 Company 表全称具备公司法定特征，或者详情全称不具备法定特征，优先用 Company 表的
+    if (isCorporateName(companyTableFullName) || !isCorporateName(cleanDetail)) {
+      candidateFullName = companyTableFullName
+    } else if (cleanDetail && isCorporateName(cleanDetail)) {
+      // 如果 Company 表只是简短名称，但职位详情拿到了法定全称，采用详情全称更优
+      candidateFullName = cleanDetail
+    } else {
+      candidateFullName = companyTableFullName
+    }
+  } else if (cleanDetail) {
+    // 优先级 2: Company 表没有，取职位详情
+    candidateFullName = cleanDetail
+  } else {
+    // 优先级 3: 列表提取或简称兜底
+    candidateFullName = cleanList || baseName
+  }
+
+  // 3. 防降级覆盖保护：对比现有 Job 表中的全称
+  const finalFullName = chooseBestCompanyFullName(candidateFullName, existingJobFullName, baseName)
+
+  // 4. 自动反哺 Company 表：若最终裁决出的全称具备公司法定特征，而 Company 表尚未收录或仅为简称，触发补齐
+  if (
+    finalFullName &&
+    isCorporateName(finalFullName) &&
+    existingCompany &&
+    (!existingCompany.companyFullName || !isCorporateName(existingCompany.companyFullName))
+  ) {
+    try {
+      await prisma.company.update({
+        where: { id: existingCompany.id },
+        data: {
+          companyFullName: finalFullName,
+          updatedAt: new Date()
+        }
+      })
+      existingCompany.companyFullName = finalFullName
+    } catch (e) {
+      // 忽略并发更新冲突
+    }
+  }
+
+  return {
+    finalFullName,
+    existingCompany
+  }
+}
+
+/**
  * 安全地从多个候选值中提取首个非空字符串
  * 兼容 string、number、array（拼接为'/'或取非空）以及嵌套对象（如 { name, text, label, value, title, url }）
  */

@@ -1,4 +1,5 @@
 import type { JobProcessor } from './types'
+import { cleanCompanyName, resolveCompanyFullName, isCorporateName } from '../companyProcessors/types'
 import { computeDescHash } from '../descHash'
 import { resolveJobHrActive } from '../hrAnalytics'
 import { extractStructuredAndPayload, syncJobDetailPayload } from '../jobDualWriter'
@@ -7,8 +8,14 @@ export const processDefaultJob: JobProcessor = async (job, platform, prisma) => 
   const jobId = job.jobId || job['职位ID'] || ''
   const jobTitle = job.title || job['职位名称'] || ''
   const companyName = job.companyName || job['公司名称'] || ''
+  const companyFullName = job.companyFullName || job['公司全称'] || job.fullCompanyName || ''
   const salary = job.salary || job['薪资待遇'] || ''
   const location = job.location || job['工作地点'] || ''
+  const companyId = job.companyId || job['公司ID'] || ''
+
+  const cleanName = cleanCompanyName(companyName)
+  const detailFullName = job['公司全称'] || job.companyFullName || ''
+  const listFullName = cleanCompanyName(companyFullName)
 
   const stringifiedData = JSON.stringify(job)
   const createdAt = new Date()
@@ -17,9 +24,38 @@ export const processDefaultJob: JobProcessor = async (job, platform, prisma) => 
   const hr = resolveJobHrActive(job, null, platform)
   const { structuredJobData, payloadData } = extractStructuredAndPayload(job, platform, stringifiedData)
 
+  // 检查已有职位指纹与现有全称（用于变动检测与全称防降级保护）
+  const existingJob = await prisma.job.findUnique({
+    where: {
+      jobId_platform: {
+        jobId: String(jobId),
+        platform: platform
+      }
+    },
+    select: {
+      descHash: true,
+      salary: true,
+      title: true,
+      companyFullName: true
+    }
+  })
+
+  // 阶梯式解析公司全称（Company表优先 -> 职位详情 -> 列表兜底，外加防降级保护与反哺）
+  const { finalFullName, existingCompany: resolvedCompany } = await resolveCompanyFullName({
+    prisma,
+    platform,
+    companyId: companyId ? String(companyId) : null,
+    cleanName,
+    detailFullName,
+    listFullName,
+    existingJobFullName: existingJob?.companyFullName
+  })
+
   const updateData: any = {
     title: String(jobTitle),
-    companyName: String(companyName),
+    companyName: String(cleanName || companyName),
+    companyFullName: finalFullName || null,
+    companyId: companyId ? String(companyId) : null,
     salary: String(salary),
     location: String(location),
     updatedAt: updatedAt,
@@ -34,7 +70,9 @@ export const processDefaultJob: JobProcessor = async (job, platform, prisma) => 
   const createData: any = {
     jobId: String(jobId),
     title: String(jobTitle),
-    companyName: String(companyName),
+    companyName: String(cleanName || companyName),
+    companyFullName: finalFullName || null,
+    companyId: companyId ? String(companyId) : null,
     salary: String(salary),
     location: String(location),
     platform: platform,
@@ -49,21 +87,6 @@ export const processDefaultJob: JobProcessor = async (job, platform, prisma) => 
     rawData: stringifiedData,
     ...structuredJobData
   }
-
-  // 检查已有职位指纹与薪资变化
-  const existingJob = await prisma.job.findUnique({
-    where: {
-      jobId_platform: {
-        jobId: String(jobId),
-        platform: platform
-      }
-    },
-    select: {
-      descHash: true,
-      salary: true,
-      title: true
-    }
-  })
 
   let isChanged = false
   let changeReason = ''
@@ -105,14 +128,28 @@ export const processDefaultJob: JobProcessor = async (job, platform, prisma) => 
   }
 
   // 再保存公司数据
-  if (companyName) {
-    // 第一步：因为默认平台可能没有 companyId，所以只通过名称和平台查找（兜底方案）
-    let existingCompany = await prisma.company.findFirst({
-      where: { companyName: String(companyName), sourcePlatform: platform }
-    })
+  const targetCompanyName = cleanName || companyName
+  if (targetCompanyName) {
+    let existingCompany = resolvedCompany
+    if (!existingCompany && companyId) {
+      existingCompany = await prisma.company.findFirst({
+        where: { companyId: String(companyId), sourcePlatform: platform }
+      })
+    }
+    if (!existingCompany && targetCompanyName) {
+      existingCompany = await prisma.company.findFirst({
+        where: { companyName: targetCompanyName, sourcePlatform: platform }
+      })
+    }
 
-    const companyUpdateData = {
+    const companyUpdateData: any = {
       rawData: stringifiedData
+    }
+    if (finalFullName && (!existingCompany?.companyFullName || (!isCorporateName(existingCompany.companyFullName) && isCorporateName(finalFullName)))) {
+      companyUpdateData.companyFullName = finalFullName
+    }
+    if (companyId && !existingCompany?.companyId) {
+      companyUpdateData.companyId = String(companyId)
     }
 
     // 第二步：执行入库操作
@@ -127,28 +164,26 @@ export const processDefaultJob: JobProcessor = async (job, platform, prisma) => 
       try {
         await prisma.company.create({
           data: {
-            companyName: String(companyName),
+            companyName: targetCompanyName,
+            companyFullName: finalFullName || undefined,
+            companyId: companyId ? String(companyId) : undefined,
             sourcePlatform: platform,
             rawData: stringifiedData
           }
         })
       } catch (err: any) {
         // 异常处理：捕获高并发下的唯一键冲突 (P2002)
-        // 比如两个请求同时发现公司不存在，同时执行 create，第二个就会报错 P2002
         if (err.code === 'P2002') {
-          // 既然冲突了，说明刚刚有别的请求创建了它，那我们再查一次把它找出来
           const newlyInserted = await prisma.company.findFirst({
-            where: { companyName: String(companyName), sourcePlatform: platform }
+            where: { companyName: targetCompanyName, sourcePlatform: platform }
           })
           if (newlyInserted) {
-            // 转为更新操作
             await prisma.company.update({
               where: { id: newlyInserted.id },
               data: companyUpdateData
             })
           }
         } else {
-          // 其他未知错误，直接抛出
           throw err
         }
       }
