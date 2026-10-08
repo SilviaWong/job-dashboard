@@ -143,12 +143,26 @@
           
         </div>
 
-        <!-- 右侧：AI 分析 -->
+        <!-- 右侧：AI 分析与面试跟进 -->
         <div class="drawer-right">
           <div class="drawer-right-topbar">
-            <div class="ai-topbar-title">
-              <el-icon class="ai-topbar-icon"><Sparkles /></el-icon>
-              <span>AI 深度评估</span>
+            <div class="drawer-right-tabs">
+              <button 
+                class="right-tab-btn" 
+                :class="{ active: rightTab === 'ai' }" 
+                @click="rightTab = 'ai'"
+              >
+                <el-icon class="ai-topbar-icon"><Sparkles /></el-icon>
+                <span>AI 深度评估</span>
+              </button>
+              <button 
+                class="right-tab-btn" 
+                :class="{ active: rightTab === 'interview' }" 
+                @click="rightTab = 'interview'"
+              >
+                <el-icon class="interview-topbar-icon"><Calendar /></el-icon>
+                <span>面试跟进与复盘</span>
+              </button>
             </div>
             <button class="drawer-close-btn" @click="visible = false" title="关闭 (Esc)">
               <el-icon :size="16"><X /></el-icon>
@@ -156,7 +170,42 @@
           </div>
 
           <div class="drawer-right-body">
-            <div class="ai-panel">
+            <div v-show="rightTab === 'ai'" class="ai-panel">
+              <!-- 多版本简历画像选择条 -->
+              <div class="resume-selector-bar">
+                <div class="selector-left">
+                  <span class="selector-label">🎯 诊断画像：</span>
+                  <el-select
+                    v-model="selectedResumeProfileId"
+                    size="small"
+                    placeholder="选择简历版本"
+                    style="width: 220px;"
+                  >
+                    <el-option
+                      v-for="p in resumeProfiles"
+                      :key="p.id"
+                      :label="p.isDefault ? `${p.title} (主简历)` : p.title"
+                      :value="p.id"
+                    />
+                  </el-select>
+                </div>
+                <el-button
+                  size="small"
+                  type="primary"
+                  :loading="analyzing"
+                  @click="runFullAnalysis"
+                >
+                  重新全面诊断
+                </el-button>
+              </div>
+
+              <!-- JD 深度技能差距分析卡片 -->
+              <JobGapAnalysisSection
+                :gap-data="gapResult"
+                :loading="gapAnalyzing"
+                @analyze="runGapAnalysis"
+              />
+
               <template v-if="job.aiResult">
                 <div class="ai-score-card-drawer">
                   <el-progress type="dashboard" :percentage="job.aiResult.score || 0" :color="getScoreColor(job.aiResult.score)" :width="100">
@@ -232,6 +281,11 @@
                 </div>
               </div> -->
             </div>
+
+            <!-- 面试追踪与复盘 Tab -->
+            <div v-if="rightTab === 'interview'" class="interview-panel-wrapper">
+              <JobInterviewSection :job="job" @interview-updated="onInterviewUpdated" />
+            </div>
           </div>
         </div>
       </div>
@@ -243,16 +297,89 @@
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { JobStatus } from '~/utils/enums'
-import { Building, MapPin, Map, Briefcase, GraduationCap, Globe, BarChart, Gift, FileText, Lightbulb, Sparkles, Rocket, ExternalLink, Tags, Ban, Target, Copy, RefreshCw, ShieldBan, UserCheck, X, Clock } from 'lucide-vue-next'
+import { Building, MapPin, Map, Briefcase, GraduationCap, Globe, BarChart, Gift, FileText, Lightbulb, Sparkles, Rocket, ExternalLink, Tags, Ban, Target, Copy, RefreshCw, ShieldBan, UserCheck, X, Clock, Calendar, Compass } from 'lucide-vue-next'
 import { getJobTimeDiagnosis, getJobTimeline } from '~/utils/jobTimeUtils'
+import JobGapAnalysisSection from '~/components/JobGapAnalysisSection.vue'
 
 const emit = defineEmits(['status-changed'])
 
 const visible = ref(false)
 const job = ref(null)
+const rightTab = ref('ai')
 const marking = ref(false)
 const predicting = ref(false)
 const generatingGreeting = ref(false)
+const analyzing = ref(false)
+
+// 多版本简历画像与 JD 差距分析状态
+const resumeProfiles = ref([])
+const selectedResumeProfileId = ref('')
+const gapResult = ref(null)
+const gapAnalyzing = ref(false)
+
+const fetchResumeProfiles = async () => {
+  try {
+    const res = await $fetch('/api/resumes')
+    if (res?.success) {
+      resumeProfiles.value = res.data || []
+      if (!selectedResumeProfileId.value && resumeProfiles.value.length > 0) {
+        const defaultOne = resumeProfiles.value.find(p => p.isDefault) || resumeProfiles.value[0]
+        selectedResumeProfileId.value = defaultOne.id
+      }
+    }
+  } catch (err) {
+    console.error('Failed to fetch resumes in drawer:', err)
+  }
+}
+
+const runGapAnalysis = async () => {
+  if (!job.value?.jobId) return
+  gapAnalyzing.value = true
+  try {
+    const res = await $fetch('/api/jobs/gap-analysis', {
+      method: 'POST',
+      body: {
+        jobId: job.value.jobId,
+        resumeProfileId: selectedResumeProfileId.value || undefined
+      }
+    })
+    if (res?.success) {
+      gapResult.value = res.data
+      ElMessage.success('JD 深度技能差距分析完成！')
+    } else {
+      ElMessage.error(res?.error || '差距分析失败')
+    }
+  } catch (err) {
+    ElMessage.error('差距分析服务异常: ' + (err.message || ''))
+  } finally {
+    gapAnalyzing.value = false
+  }
+}
+
+const runFullAnalysis = async () => {
+  if (!job.value?.jobId) return
+  analyzing.value = true
+  try {
+    const res = await $fetch('/api/jobs/analyze', {
+      method: 'POST',
+      body: {
+        jobId: job.value.jobId,
+        resumeProfileId: selectedResumeProfileId.value || undefined
+      }
+    })
+    if (res?.success) {
+      job.value.aiResult = res.data
+      ElMessage.success('全面匹配诊断已更新！')
+      emit('status-changed')
+    } else {
+      ElMessage.error(res?.error || '诊断失败')
+    }
+  } catch (err) {
+    ElMessage.error('诊断服务异常: ' + (err.message || ''))
+  } finally {
+    analyzing.value = false
+  }
+}
 
 const jobDiagnosis = computed(() => {
   if (!job.value) return null
@@ -284,7 +411,10 @@ const generatePredictions = async () => {
   try {
     const res = await $fetch('/api/jobs/predict-questions', {
       method: 'POST',
-      body: { jobId: job.value.jobId }
+      body: {
+        jobId: job.value.jobId,
+        resumeProfileId: selectedResumeProfileId.value || undefined
+      }
     })
     
     if (res && res.success && res.data) {
@@ -308,7 +438,10 @@ const generateGreeting = async () => {
   try {
     const res = await $fetch('/api/jobs/generate-greeting', {
       method: 'POST',
-      body: { jobId: job.value.jobId }
+      body: {
+        jobId: job.value.jobId,
+        resumeProfileId: selectedResumeProfileId.value || undefined
+      }
     })
     
     if (res && res.success && res.data) {
@@ -432,11 +565,18 @@ const copySkillResult = async () => {
   }
 }
 
-const open = (jobData) => {
+const open = (jobData, initialTab = 'ai') => {
   job.value = jobData
+  rightTab.value = initialTab
   visible.value = true
   activeSkillResult.value = ''
+  gapResult.value = null
   fetchSkills()
+  fetchResumeProfiles()
+}
+
+const onInterviewUpdated = () => {
+  emit('status-changed', job.value)
 }
 
 const markAsExpired = async (jobData) => {
@@ -986,6 +1126,52 @@ defineExpose({
   flex-shrink: 0;
 }
 
+.drawer-right-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #f1f5f9;
+  padding: 3px;
+  border-radius: 8px;
+}
+
+.right-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.right-tab-btn:hover {
+  color: #1e293b;
+}
+
+.right-tab-btn.active {
+  background: #ffffff;
+  color: #0f172a;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.interview-topbar-icon {
+  color: #2563eb;
+  font-size: 15px;
+}
+
+.interview-panel-wrapper {
+  background: #ffffff;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+
 .ai-topbar-title {
   display: flex;
   align-items: center;
@@ -1128,5 +1314,31 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
+.resume-selector-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.selector-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selector-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+}
+
 }
 </style>

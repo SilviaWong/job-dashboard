@@ -30,6 +30,11 @@
           <span>投递追踪</span>
         </el-menu-item>
         
+        <el-menu-item index="/interviews">
+          <el-icon><Calendar /></el-icon>
+          <span>面试复盘</span>
+        </el-menu-item>
+        
         <el-menu-item index="/ai/model">
           <el-icon><Bot /></el-icon>
           <span>大模型管理</span>
@@ -75,7 +80,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { ClipboardList, Building2, MapPin, Bot, BookOpen, Briefcase, FileText, LayoutDashboard, Wand2, ShieldBan } from 'lucide-vue-next'
+import { ClipboardList, Building2, MapPin, Bot, BookOpen, Briefcase, FileText, LayoutDashboard, Wand2, ShieldBan, Calendar } from 'lucide-vue-next'
 
 const route = useRoute()
 const activeMenu = computed(() => {
@@ -83,6 +88,7 @@ const activeMenu = computed(() => {
   if (route.path.startsWith('/companies')) return '/companies'
   if (route.path.startsWith('/dashboard')) return '/dashboard'
   if (route.path.startsWith('/kanban')) return '/kanban'
+  if (route.path.startsWith('/interviews')) return '/interviews'
   if (route.path.startsWith('/blacklist')) return '/blacklist'
   if (route.path.startsWith('/ai')) return '/ai'
   if (route.path.startsWith('/questions')) return '/questions'

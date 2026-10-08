@@ -14,7 +14,7 @@ const AI_PREDICT_QUESTIONS_PROMPT = `
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
-  const { jobId } = body
+  const { jobId, resumeProfileId } = body
 
   if (!jobId) {
     return { success: false, error: '缺少 jobId' }
@@ -37,8 +37,30 @@ export default defineEventHandler(async (event) => {
       where: { id: 'default' }
     })
 
-    if (!settings || !settings.activeProfileId || !settings.profiles || !settings.resume) {
-      return { success: false, error: '请先在系统设置中完成 AI 模型配置和个人简历设置' }
+    if (!settings || !settings.activeProfileId || !settings.profiles) {
+      return { success: false, error: '请先在系统设置中完成 AI 模型配置' }
+    }
+
+    // 2.1 获取简历内容 (支持多版本简历，优先 resumeProfileId -> 默认版本 -> settings.resume)
+    let candidateResume = ''
+    if (resumeProfileId) {
+      const profile = await prisma.resumeProfile.findUnique({
+        where: { id: resumeProfileId }
+      })
+      if (profile) candidateResume = profile.content
+    }
+    if (!candidateResume) {
+      const defaultProfile = await prisma.resumeProfile.findFirst({
+        where: { isDefault: true }
+      })
+      if (defaultProfile) candidateResume = defaultProfile.content
+    }
+    if (!candidateResume) {
+      candidateResume = settings.resume || ''
+    }
+
+    if (!candidateResume.trim()) {
+      return { success: false, error: '请先在简历管理中添加至少一份简历' }
     }
 
     const profiles = JSON.parse(settings.profiles)
@@ -60,7 +82,7 @@ export default defineEventHandler(async (event) => {
 ${jobDescription}
 
 === 候选人简历 ===
-${settings.resume}
+${candidateResume}
 
 请开始预测面试题目：
 `;

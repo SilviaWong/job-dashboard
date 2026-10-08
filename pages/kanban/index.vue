@@ -32,16 +32,33 @@
               shadow="hover"
               draggable="true"
               @dragstart="onDragStart($event, job)"
+              @click="openJobDrawer(job, column.id)"
             >
               <div class="card-content">
-                <div class="job-title">{{ job.title }}</div>
+                <div class="card-top-row">
+                  <div class="job-title">{{ job.title }}</div>
+                  <el-tag v-if="column.id.startsWith('interview')" size="small" type="warning" effect="light" class="interview-quick-tag">
+                    <el-icon><Calendar /></el-icon>&nbsp;面试
+                  </el-tag>
+                </div>
                 <div class="job-company" :title="job.companyFullName && job.companyFullName !== job.companyName ? `主体全称：${job.companyFullName}（品牌名：${job.companyName}）` : (job.companyFullName || job.companyName)">
                   {{ job.companyFullName || job.companyName }}
                   <span v-if="job.companyName && job.companyFullName && job.companyName !== job.companyFullName" class="company-brand-sub">
                     ({{ job.companyName }})
                   </span>
                 </div>
-                <div class="job-salary">{{ job.salary }}</div>
+                <div class="card-footer-row">
+                  <div class="job-salary">{{ job.salary }}</div>
+                  <el-button 
+                    v-if="column.id.startsWith('interview')" 
+                    text 
+                    size="small" 
+                    type="primary" 
+                    @click.stop="openJobDrawer(job, 'interview')"
+                  >
+                    复盘/日程
+                  </el-button>
+                </div>
               </div>
             </el-card>
             
@@ -52,15 +69,20 @@
         </div>
       </div>
     </el-card>
+
+    <!-- 职位详情抽屉 (支持一键查看/添加面试日程与复盘) -->
+    <JobDetailDrawer ref="jobDrawerRef" @status-changed="fetchJobs" />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Calendar } from 'lucide-vue-next'
 
 const loading = ref(false)
 const jobs = ref([])
+const jobDrawerRef = ref(null)
 
 const columns = [
   { id: 'to-apply', title: '待投递' },
@@ -106,6 +128,12 @@ const onDragStart = (event, job) => {
   event.dataTransfer.setData('jobId', job.id)
 }
 
+const openJobDrawer = (job, columnId) => {
+  if (!jobDrawerRef.value) return
+  const tab = (columnId && columnId.startsWith('interview')) ? 'interview' : 'ai'
+  jobDrawerRef.value.open(job, tab)
+}
+
 const onDrop = async (event, newStatus) => {
   const id = event.dataTransfer.getData('jobId')
   if (!id) return
@@ -124,7 +152,11 @@ const onDrop = async (event, newStatus) => {
     })
     
     if (res.success) {
-      ElMessage.success('状态更新成功')
+      if (newStatus.startsWith('interview')) {
+        ElMessage.success('已进入面试阶段，点击卡片可安排面试时间并导出日历！')
+      } else {
+        ElMessage.success('状态更新成功')
+      }
     } else {
       // Revert on failure
       job.status = oldStatus
@@ -223,5 +255,22 @@ onMounted(() => {
   padding: 20px 0;
   border: 2px dashed #dcdfe6;
   border-radius: 4px;
+}
+.card-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+.interview-quick-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.card-footer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
 }
 </style>

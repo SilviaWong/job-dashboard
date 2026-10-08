@@ -256,3 +256,18 @@ model AiSkill {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
+
+model ResumeProfile {
+  id          String   @id @default(uuid())
+  title       String   // 简历画像名称，如：Java后端专家 (微服务/高并发)
+  targetRole  String?  // 目标岗位名称，如：Java开发工程师
+  tags        String?  // JSON string: string[]
+  content     String   // 简历全文 (Markdown 或纯文本)
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isDefault])
+  @@map("resume_profiles")
+}
+

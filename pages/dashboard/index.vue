@@ -1,8 +1,22 @@
 <template>
   <div class="dashboard-page">
     <div class="page-header">
-      <h2>数据看板</h2>
-      <p class="subtitle">全平台求职市场洞察 · 共分析 {{ totalJobs }} 个职位</p>
+      <div class="header-title-box">
+        <h2>数据看板</h2>
+        <p class="subtitle" v-if="activeView === 'funnel'">
+          投递全链路流转 · 漏斗转化率、阶段耗时与滞留风险监控
+        </p>
+        <p class="subtitle" v-else>
+          全平台求职市场洞察 · 共分析 {{ totalJobs }} 个职位
+        </p>
+      </div>
+
+      <div class="header-controls">
+        <el-radio-group v-model="activeView" size="default">
+          <el-radio-button value="funnel">🎯 求职效能与转化漏斗</el-radio-button>
+          <el-radio-button value="market">🌐 全网岗位市场大盘</el-radio-button>
+        </el-radio-group>
+      </div>
     </div>
 
     <div v-if="loading" class="loading-state">
@@ -13,6 +27,14 @@
       <el-alert :title="error" type="error" show-icon />
     </div>
 
+    <!-- 视角 1: 求职效能与转化漏斗 -->
+    <FunnelDashboardView
+      v-else-if="activeView === 'funnel'"
+      :funnel-data="funnelData"
+      @select-job="openJobDrawer"
+    />
+
+    <!-- 视角 2: 全网岗位市场大盘 -->
     <div v-else class="dashboard-container">
       <!-- KPI Stats Row -->
       <div class="kpi-row">
@@ -94,6 +116,9 @@
         </div>
       </div>
     </div>
+
+    <!-- 详情抽屉 -->
+    <JobDetailDrawer ref="jobDrawerRef" @status-changed="handleStatusChanged" />
   </div>
 </template>
 
@@ -126,27 +151,50 @@ use([
 const loading = ref(true)
 const error = ref(null)
 const statsData = ref(null)
+const funnelData = ref(null)
 const totalJobs = ref(0)
 const trendDimension = ref('weekly')
+const activeView = ref('funnel')
+const jobDrawerRef = ref(null)
+
+const fetchData = async () => {
+  try {
+    const [dashRes, funnelRes] = await Promise.all([
+      $fetch('/api/dashboard'),
+      $fetch('/api/dashboard/funnel')
+    ])
+
+    if (dashRes?.success) {
+      statsData.value = dashRes.data
+      totalJobs.value = dashRes.data.totalJobs
+    }
+
+    if (funnelRes?.success) {
+      funnelData.value = funnelRes.data
+    }
+  } catch (e) {
+    error.value = e.message || '获取数据失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+const openJobDrawer = (jobId) => {
+  jobDrawerRef.value?.open(jobId)
+}
+
+const handleStatusChanged = () => {
+  fetchData()
+}
 
 onMounted(async () => {
   try {
     // Dynamically import echarts-wordcloud on the client side to prevent SSR errors
     await import('echarts-wordcloud')
-    
-    const response = await $fetch('/api/dashboard')
-    if (response?.success) {
-      statsData.value = response.data
-      totalJobs.value = response.data.totalJobs
-    } else {
-      error.value = response?.error || 'Failed to fetch dashboard data'
-    }
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    loading.value = false
-  }
+  } catch (e) {}
+  await fetchData()
 })
+
 
 // Trend Chart Options
 const trendChartOption = computed(() => {
@@ -359,8 +407,21 @@ const skillsChartOption = computed(() => {
 
 .page-header {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.header-title-box {
+  display: flex;
   align-items: baseline;
   gap: 16px;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
 }
 
 .page-header h2 {

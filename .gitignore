@@ -27,3 +27,8 @@ scripts
 docs
 job-dashboard-local.code-workspace
 prisma/*.db*
+prisma/**/*.db*
+prisma/backup*
+*.db
+*.db-shm
+*.db-wal
