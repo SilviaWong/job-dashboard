@@ -1,4 +1,5 @@
 import { resolveJobHrActive } from './hrAnalytics'
+import { resolveStandardCity } from './jobDataParser'
 
 export interface NormalizedJobData {
   /** 职位链接 (Job URL) */
@@ -49,6 +50,8 @@ export interface NormalizedJobData {
   jobTags: string[];
   /** 城市 (City) */
   city: string;
+  /** 统一国家标准城市代码 (GB/T 2260 City Code) */
+  cityCode?: string;
   /** 区域 (Area) */
   area: string;
   /** 商圈 (Business District) */
@@ -327,7 +330,7 @@ function normalizeZhilianJob(job: any, raw: any, raw2: any, companyInfo?: any, j
   }
 
   // 提取并解析地理位置
-  let rawCity = fallback.workCity || detailedPosition.positionWorkCity || detailedPosition.workCity || fallback.jobRootOrgInfo?.cityName || jobDeliverCache.workCity || ''
+  let rawCity = fallback.workCity || detailedPosition.positionWorkCity || detailedPosition.workCity || jobDeliverCache.workCity || ''
   let rawDistrict = fallback.cityDistrict || detailedPosition.cityDistrict || detailedPosition.positionCityDistrict || jobDeliverCache.cityDistrict || ''
   const locationRaw = fallback['工作地点'] || fallback['工作城市'] || job.location || ''
 
@@ -472,7 +475,7 @@ function normalizeLiepinJob(job: any, raw: any, raw2: any, companyInfo?: any, jo
     degree: jobInfo.requireEduLevel || jdJson.educationRequirements || '学历不限',
     positionType: jobInfo.jobKind || '',
     jobTags: extractLiepinTags((fallback.jobTags?.length ? fallback.jobTags : null) || (jobInfo.jobTags?.length ? jobInfo.jobTags : null) || []),
-    city: jobInfo.dqCityName || jdJson.jobLocation?.address?.addressLocality || jobInfo.dq || '',
+    city: jobInfo.dqCityName || jdJson.jobLocation?.address?.addressRegion || jobInfo.dq || jdJson.jobLocation?.address?.addressLocality || '',
     area: jobInfo.dqAreaName || '',
     businessDistrict: fallback.businessDistrict || jobInfo.businessDistrict || '',
     isHeadhunter: String(jobInfo.jobKind) === '1' || String(fallback.job?.jobKind) === '1' || fallback.isHeadhunter === true,
@@ -545,6 +548,13 @@ export function normalizeJobData(job: any, raw: any, raw2: any, companyInfo?: an
       result = normalizeFallbackJob(job, raw, raw2, companyInfo, jobDetail);
     }
   }
+
+  // 统一归一化城市名与国家标准 6 位城市代码 (GB/T 2260)
+  const resolvedCity = resolveStandardCity(result.city || job?.city || job?.location, raw || raw2 || job, job?.platform || raw?.platform);
+  if (resolvedCity.city) {
+    result.city = resolvedCity.city;
+  }
+  result.cityCode = resolvedCity.cityCode || '';
 
   const hr = resolveJobHrActive(raw, jobDetail, job.platform);
   result.hrActiveStatus = job.hrActiveStatus || hr.hrActiveStatus || '';

@@ -1,5 +1,6 @@
 import { getPrisma } from '#prisma'
 import { normalizeJobData } from '../utils/jobNormalizer'
+import { resolveCityCode, STANDARD_CITY_CODE_MAP } from '../utils/jobDataParser'
 import { JobStatus } from '../../utils/enums'
 
 export default defineEventHandler(async (event) => {
@@ -13,6 +14,7 @@ export default defineEventHandler(async (event) => {
   const filterExcludeHeadhunter = query.filterExcludeHeadhunter === 'true'
   const headhunterFilter = (query.headhunterFilter as string) || (filterExcludeHeadhunter ? 'direct' : 'all')
   const platform = query.platform as string || 'all'
+  const city = (query.city as string) || (query.cityCode as string) || 'all'
   const education = query.education as string || 'all'
   const keyword = query.keyword as string || ''
   const salaryFilter = query.salaryFilter as string || 'all'
@@ -59,6 +61,36 @@ export default defineEventHandler(async (event) => {
     // Platform filter
     if (platform !== 'all') {
       whereClause.platform = platform
+    }
+
+    // City filter (支持按标准城市名、6位国标 cityCode 或 'other' 过滤)
+    if (city !== 'all') {
+      if (city === 'other') {
+        andConditions.push({
+          NOT: {
+            OR: [
+              { cityCode: { in: ['310100', '330100', '440300', '320500', '110100', '440100', '320100'] } },
+              { city: { in: ['上海', '杭州', '深圳', '苏州', '北京', '广州', '南京'] } }
+            ]
+          }
+        })
+      } else if (/^\d{6}$/.test(city)) {
+        const matchedName = Object.entries(STANDARD_CITY_CODE_MAP).find(([, code]) => code === city)?.[0]
+        andConditions.push({
+          OR: [
+            { cityCode: city },
+            ...(matchedName ? [{ city: matchedName }] : [])
+          ]
+        })
+      } else {
+        const code = resolveCityCode(city)
+        andConditions.push({
+          OR: [
+            { city },
+            ...(code ? [{ cityCode: code }] : [])
+          ]
+        })
+      }
     }
 
     // Education filter
@@ -320,12 +352,25 @@ export default defineEventHandler(async (event) => {
     }) : [];
     const companyMap = Object.fromEntries(companies.map(c => [`${c.sourcePlatform}_${c.companyName}`, c]));
 
+    // Helper to filter out corrupted JSON/control-character fragments defensively
+    const cleanField = (val: any): string => {
+      if (!val || typeof val !== 'string') return ''
+      const trimmed = val.trim()
+      if (trimmed.includes('"') || trimmed.includes('{') || trimmed.includes('}') || trimmed.includes(']') || /[\x00-\x1F]/.test(trimmed)) {
+        return ''
+      }
+      return trimmed
+    }
+
     // Merge everything for the frontend (直接利用结构化数据，告别运行时大规模 JSON.parse 与正则)
     const mergedJobs = jobs.map(job => {
-      let parsedTags = []
+      let parsedTags: string[] = []
       if (job.tags) {
         try {
-          parsedTags = JSON.parse(job.tags)
+          const res = JSON.parse(job.tags)
+          if (Array.isArray(res)) {
+            parsedTags = res.filter((t: any) => typeof t === 'string' && !t.includes('"') && !/[\x00-\x1F]/.test(t))
+          }
         } catch (e) { }
       }
 
@@ -362,8 +407,8 @@ export default defineEventHandler(async (event) => {
       if (job.city || job.skills || job.detailPayload?.jobDesc) {
         normalizedData = {
           jobUrl: job.detailPayload?.jobUrl || '',
-          publishDate: job.platformPublishTime || '',
-          updateDate: job.platformUpdateTime || '',
+          publishDate: cleanField(job.platformPublishTime),
+          updateDate: cleanField(job.platformUpdateTime),
           spiderDate: '',
           companyIndustry: compIndustry,
           companyStage: companyInfo?.stage || '',
@@ -371,8 +416,8 @@ export default defineEventHandler(async (event) => {
           brandName: job.companyName,
           companyFullName: job.companyFullName || job.companyName,
           companyId: job.companyId || '',
-          hrName: job.hrName || '',
-          hrPosition: job.hrPosition || '',
+          hrName: cleanField(job.hrName),
+          hrPosition: cleanField(job.hrPosition),
           hrCompanyName: job.companyName,
           welfareList: parsedWelfare,
           skills: parsedSkills,
@@ -380,19 +425,20 @@ export default defineEventHandler(async (event) => {
           jobName: job.title,
           salaryRange: job.salary,
           jobDesc: job.detailPayload?.jobDesc || '暂无描述',
-          experience: job.experience || job.education || '经验不限',
-          degree: job.education || '学历不限',
+          experience: cleanField(job.experience) || cleanField(job.education) || '经验不限',
+          degree: cleanField(job.education) || '学历不限',
           positionType: '',
           jobTags: parsedSkills,
-          city: job.city || '',
-          area: job.area || '',
-          businessDistrict: job.businessDistrict || '',
-          address: job.address || '',
+          city: cleanField(job.city) || '上海',
+          cityCode: cleanField(job.cityCode) || '310100',
+          area: cleanField(job.area),
+          businessDistrict: cleanField(job.businessDistrict),
+          address: cleanField(job.address),
           isHeadhunter: !!job.isHeadhunter,
-          clientCompanyName: job.clientCompanyName || '',
+          clientCompanyName: cleanField(job.clientCompanyName),
           dataSource: job.dataSource || '',
           jobStatus: job.status || '',
-          hrActiveStatus: job.hrActiveStatus || '',
+          hrActiveStatus: cleanField(job.hrActiveStatus),
           hrActiveLevel: job.hrActiveLevel || 'unknown'
         }
       } else {

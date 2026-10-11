@@ -4,10 +4,26 @@
 
 export function parseDateString(str: any): Date | null {
   if (!str) return null
-  if (str instanceof Date) return isNaN(str.getTime()) ? null : str
+  if (str instanceof Date) {
+    if (isNaN(str.getTime())) return null
+    const y = str.getFullYear()
+    if (y < 2020 || y > 2035) return null
+    return str
+  }
 
   const s = String(str).trim()
   if (!s) return null
+
+  // 尝试匹配 YYYY-MM-DD
+  const m = s.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/)
+  if (m) {
+    const year = parseInt(m[1], 10)
+    if (year < 2020 || year > 2035) return null
+    const month = parseInt(m[2], 10) - 1
+    const day = parseInt(m[3], 10)
+    const parsed = new Date(year, month, day)
+    if (!isNaN(parsed.getTime())) return parsed
+  }
 
   // 处理带有类似 "2025-09-17 10:12:21" 格式
   let cleanStr = s
@@ -17,17 +33,9 @@ export function parseDateString(str: any): Date | null {
 
   const d = new Date(cleanStr)
   if (!isNaN(d.getTime())) {
+    const y = d.getFullYear()
+    if (y < 2020 || y > 2035) return null
     return d
-  }
-
-  // 尝试匹配 YYYY-MM-DD
-  const m = s.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/)
-  if (m) {
-    const year = parseInt(m[1], 10)
-    const month = parseInt(m[2], 10) - 1
-    const day = parseInt(m[3], 10)
-    const parsed = new Date(year, month, day)
-    if (!isNaN(parsed.getTime())) return parsed
   }
 
   return null
@@ -36,7 +44,7 @@ export function parseDateString(str: any): Date | null {
 export function formatDisplayDate(dateInput: any): string {
   if (!dateInput) return ''
   const d = parseDateString(dateInput)
-  if (!d) return String(dateInput).slice(0, 10)
+  if (!d) return ''
   
   const year = d.getFullYear()
   const month = String(d.getMonth() + 1).padStart(2, '0')

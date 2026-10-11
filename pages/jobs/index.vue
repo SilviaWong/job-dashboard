@@ -24,6 +24,17 @@
                 <el-option label="智联招聘" value="智联"></el-option>
                 <el-option label="猎聘" value="猎聘"></el-option>
               </el-select>
+              <el-select v-model="cityFilter" placeholder="全部城市" style="width: 115px" @change="() => fetchJobs(false)">
+                <el-option label="全部城市" value="all"></el-option>
+                <el-option label="上海" value="310100"></el-option>
+                <el-option label="杭州" value="330100"></el-option>
+                <el-option label="深圳" value="440300"></el-option>
+                <el-option label="苏州" value="320500"></el-option>
+                <el-option label="北京" value="110100"></el-option>
+                <el-option label="广州" value="440100"></el-option>
+                <el-option label="南京" value="320100"></el-option>
+                <el-option label="其他城市" value="other"></el-option>
+              </el-select>
               <el-select v-model="educationFilter" placeholder="全部学历" style="width: 120px" @change="() => fetchJobs(false)">
                 <el-option label="全部学历" value="all"></el-option>
                 <el-option label="不限" value="不限"></el-option>
@@ -429,6 +440,7 @@ const filterMissingBossDetail = ref(false)
 const headhunterFilter = ref('all')
 
 const platformFilter = ref('all')
+const cityFilter = ref('all')
 const educationFilter = ref('all')
 const keywordFilter = ref('')
 const aiDiagnosisFilter = ref('all')
@@ -468,6 +480,7 @@ const fetchJobs = async (isLoadMore = false) => {
       filterMissingBossDetail: filterMissingBossDetail.value,
       headhunterFilter: headhunterFilter.value,
       platform: platformFilter.value,
+      city: cityFilter.value,
       education: educationFilter.value,
       keyword: keywordFilter.value,
       aiDiagnosisFilter: aiDiagnosisFilter.value,
@@ -727,6 +740,7 @@ const handleBatchAiDiagnosis = async () => {
           filterMissingBossDetail: String(filterMissingBossDetail.value),
           headhunterFilter: headhunterFilter.value,
           platform: platformFilter.value,
+          city: cityFilter.value,
           education: educationFilter.value,
           keyword: keywordFilter.value,
           aiDiagnosisFilter: 'undiagnosed',

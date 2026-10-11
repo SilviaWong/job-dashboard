@@ -61,6 +61,7 @@ model Job {
   // 阶段一新增：结构化地理位置
   province       String?
   city           String?
+  cityCode       String?  // 统一国家标准城市代码 (GB/T 2260，如 上海: 310100, 杭州: 330100, 深圳: 440300)
   area           String?
   businessDistrict String?
   address        String?
@@ -95,6 +96,7 @@ model Job {
   @@index([status, isHidden, isFavorited])
   @@index([applyStatus])
   @@index([city])
+  @@index([cityCode])
   @@index([salaryAvg])
   @@index([updatedAt])
 }

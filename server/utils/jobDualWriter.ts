@@ -1,5 +1,5 @@
 import { normalizeJobData, type NormalizedJobData } from './jobNormalizer'
-import { parseSalaryRange, parseExperienceYears, deriveProvince, safeStringifyArray } from './jobDataParser'
+import { parseSalaryRange, parseExperienceYears, resolveStandardCity, safeStringifyArray } from './jobDataParser'
 
 export interface ExtractedJobFields {
   structuredJobData: {
@@ -9,6 +9,7 @@ export interface ExtractedJobFields {
     salaryMonths?: number
     province?: string | null
     city?: string | null
+    cityCode?: string | null
     area?: string | null
     businessDistrict?: string | null
     address?: string | null
@@ -70,16 +71,19 @@ export function extractStructuredAndPayload(
   const expStr = normalized.experience || jobRaw.experience || jobRaw.jobExperience || jobRaw.workYearString || ''
   const parsedExp = parseExperienceYears(expStr)
 
-  let city = normalized.city || jobRaw.cityName || jobRaw.city || null
+  const rawCityCandidate = normalized.city || jobRaw.cityName || jobRaw.workCity || (typeof jobRaw.city === 'string' ? jobRaw.city : null) || jobRaw.location || null
+  const resolvedCity = resolveStandardCity(rawCityCandidate, jobRaw, standardPlatform)
+  const city = resolvedCity.city
+  const cityCode = resolvedCity.cityCode
+  const province = resolvedCity.province
+
   let area = normalized.area || jobRaw.areaDistrict || jobRaw.area || null
-  if (city && city.includes('·')) {
-    const parts = city.split('·').map((s: string) => s.trim()).filter(Boolean)
-    city = parts[0] || null
-    if (!area && parts[1]) area = parts[1]
+  if (!area && typeof rawCityCandidate === 'string' && rawCityCandidate.includes('·')) {
+    const parts = rawCityCandidate.split('·').map((s: string) => s.trim()).filter(Boolean)
+    if (parts[1]) area = parts[1]
   }
   const businessDistrict = normalized.businessDistrict || jobRaw.businessDistrict || null
   const address = normalized.address || jobRaw.address || null
-  const province = deriveProvince(city)
 
   const structuredJobData = {
     salaryMin: parsedSalary.salaryMin,
@@ -88,6 +92,7 @@ export function extractStructuredAndPayload(
     salaryMonths: parsedSalary.salaryMonths,
     province,
     city,
+    cityCode,
     area,
     businessDistrict,
     address,

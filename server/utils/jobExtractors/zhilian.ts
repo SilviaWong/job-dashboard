@@ -3,7 +3,7 @@ import { cleanCompanyName, extractCompanyMetadata, resolveCompanyFullName, isCor
 import { computeDescHash } from '../descHash'
 import { resolveJobHrActive } from '../hrAnalytics'
 import { extractStructuredAndPayload, syncJobDetailPayload } from '../jobDualWriter'
-import { parseSalaryRange, parseExperienceYears, deriveProvince } from '../jobDataParser'
+import { parseSalaryRange, parseExperienceYears, resolveStandardCity } from '../jobDataParser'
 
 export const processZhilianJob: JobProcessor = async (job, platform, prisma) => {
   // 智联招聘的数据抓取存在多种格式：
@@ -41,7 +41,7 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
   }
 
   // 5. 地理位置与区域
-  const rawCity = job.workCity || detailedPosition.positionWorkCity || detailedPosition.workCity || jobDeliverCache.workCity || job.jobRootOrgInfo?.cityName || ''
+  const rawCity = job.workCity || detailedPosition.positionWorkCity || detailedPosition.workCity || jobDeliverCache.workCity || ''
   const rawDistrict = job.cityDistrict || detailedPosition.cityDistrict || detailedPosition.positionCityDistrict || jobDeliverCache.cityDistrict || ''
   const combinedLoc = [rawCity, rawDistrict].filter(Boolean).join('·')
   const location = job['工作地点'] || job['工作城市'] || combinedLoc || rawCity || jobDetail.workCity || ''
@@ -151,25 +151,21 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
     }
   }
 
-  // 11.2 城市与区域拆解兜底
-  if (!structuredJobData.city || !structuredJobData.area) {
+  // 11.2 城市、城市代码与区域拆解兜底
+  if (!structuredJobData.city || !structuredJobData.cityCode || !structuredJobData.province) {
+    const resolved = resolveStandardCity(structuredJobData.city || rawCity || location, job, platform)
+    if (resolved.city) structuredJobData.city = resolved.city
+    if (resolved.cityCode) structuredJobData.cityCode = resolved.cityCode
+    if (resolved.province) structuredJobData.province = resolved.province
+  }
+  if (!structuredJobData.area && location) {
     if (location.includes('·')) {
       const parts = location.split('·').map(s => s.trim()).filter(Boolean)
-      if (!structuredJobData.city && parts[0]) structuredJobData.city = parts[0]
-      if (!structuredJobData.area && parts[1]) structuredJobData.area = parts[1]
+      if (parts[1]) structuredJobData.area = parts[1]
     } else if (location.includes(' ')) {
       const parts = location.split(/\s+/).map(s => s.trim()).filter(Boolean)
-      if (!structuredJobData.city && parts[0]) structuredJobData.city = parts[0]
-      if (!structuredJobData.area && parts[1]) structuredJobData.area = parts[1]
-    } else if (!structuredJobData.city && location) {
-      structuredJobData.city = location
+      if (parts[1]) structuredJobData.area = parts[1]
     }
-  }
-
-  // 11.3 直辖市或所属省份自动推导
-  const derivedProv = deriveProvince(structuredJobData.city || location)
-  if (derivedProv) {
-    structuredJobData.province = derivedProv
   }
 
   // 11.4 经验年限结构化兜底
