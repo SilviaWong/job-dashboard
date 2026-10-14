@@ -21,7 +21,12 @@
             class="profile-item"
             :class="{ 'is-active': activeProfileId === profile.id }"
           >
-            {{ profile.name || '未命名配置' }}
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+              <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ profile.name || '未命名配置' }}</span>
+              <span class="mode-badge">
+                {{ formatModeBadge(profile.mode) }}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -32,7 +37,7 @@
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
             <div>
               <h2 style="margin: 0 0 8px 0; font-size: 24px; color: #333;">配置详情</h2>
-              <p style="margin: 0; color: #666; font-size: 14px;">配置兼容 OpenAI 格式的 API 接口，支持多平台切换使用。</p>
+              <p style="margin: 0; color: #666; font-size: 14px;">配置大模型调用参数，系统将严格按照您所选定的请求模式走对应接口协议。</p>
             </div>
             <button v-if="profiles.length > 1" @click="deleteProfile(activeProfile.id)" style="background: transparent; border: 1px solid #dc3545; color: #dc3545; border-radius: 6px; padding: 6px 16px; cursor: pointer; font-size: 13px;">删除此配置</button>
           </div>
@@ -42,17 +47,30 @@
               <label class="input-label">配置名称</label>
               <input type="text" class="api-input" v-model="activeProfile.name" placeholder="例如: DeepSeek, 阿里通义千问, 本地模型">
             </div>
+
+            <div class="input-group">
+              <label class="input-label">请求模式 (接口协议)</label>
+              <select class="api-input" v-model="activeProfile.mode">
+                <option value="openai">OpenAI 兼容模式（DeepSeek / 通义千问 / GPT / Kimi / Ollama / 聚合中转）</option>
+                <option value="gemini">Google Gemini 原生模式（Google AI Studio 官方 REST API）</option>
+                <option value="claude">Anthropic Claude 原生模式（Anthropic 官方 Messages API）</option>
+              </select>
+              <p class="input-tip">{{ currentModeTip }}</p>
+            </div>
+
             <div class="input-group">
               <label class="input-label">API Base URL</label>
-              <input type="text" class="api-input" v-model="activeProfile.url" placeholder="https://api.deepseek.com/v1">
+              <input type="text" class="api-input" v-model="activeProfile.url" :placeholder="currentUrlPlaceholder">
             </div>
+
             <div class="input-group">
-              <label class="input-label">模型名称</label>
-              <input type="text" class="api-input" v-model="activeProfile.model" placeholder="deepseek-chat">
+              <label class="input-label">模型名称 (Model)</label>
+              <input type="text" class="api-input" v-model="activeProfile.model" :placeholder="currentModelPlaceholder">
             </div>
+
             <div class="input-group">
               <label class="input-label">API Key</label>
-              <input type="password" class="api-input" v-model="activeProfile.key" placeholder="sk-...">
+              <input type="password" class="api-input" v-model="activeProfile.key" placeholder="API Key 或访问密钥">
             </div>
           </div>
 
@@ -83,11 +101,45 @@ const activeProfile = computed(() => {
   return profiles.value.find(p => p.id === activeProfileId.value)
 })
 
+const formatModeBadge = (mode) => {
+  if (mode === 'gemini') return 'Gemini'
+  if (mode === 'claude') return 'Claude'
+  return 'OpenAI'
+}
+
+const currentModeTip = computed(() => {
+  const mode = activeProfile.value?.mode || 'openai'
+  if (mode === 'gemini') {
+    return '💡 Google Gemini 官方 REST 格式，系统将自动补齐 /v1beta/models/{model}:generateContent 端点并通过 x-goog-api-key 认证。'
+  }
+  if (mode === 'claude') {
+    return '💡 Anthropic Claude 官方 Messages 格式，系统将通过 x-api-key 认证并携带版本号。'
+  }
+  return '💡 OpenAI 兼容协议（主流通用），若未包含 /chat/completions 系统将自动补齐。支持 DeepSeek、通义千问、Kimi、Ollama、OneAPI 等。'
+})
+
+const currentUrlPlaceholder = computed(() => {
+  const mode = activeProfile.value?.mode || 'openai'
+  if (mode === 'gemini') return 'https://generativelanguage.googleapis.com'
+  if (mode === 'claude') return 'https://api.anthropic.com/v1/messages'
+  return 'https://api.deepseek.com/v1'
+})
+
+const currentModelPlaceholder = computed(() => {
+  const mode = activeProfile.value?.mode || 'openai'
+  if (mode === 'gemini') return 'gemini-1.5-flash'
+  if (mode === 'claude') return 'claude-3-5-sonnet-20241022'
+  return 'deepseek-chat'
+})
+
 const fetchSettings = async () => {
   try {
     const res = await $fetch('/api/settings/ai')
     if (res.success) {
-      profiles.value = res.data.profiles || []
+      profiles.value = (res.data.profiles || []).map(p => ({
+        ...p,
+        mode: p.mode || (p.model?.toLowerCase().includes('gemini') ? 'gemini' : p.model?.toLowerCase().includes('claude') ? 'claude' : 'openai')
+      }))
       activeProfileId.value = res.data.activeProfileId || 'default'
       if (profiles.value.length === 0) {
         addProfile()
@@ -133,12 +185,13 @@ const testConnection = async () => {
       body: {
         url: activeProfile.value.url,
         key: activeProfile.value.key,
-        model: activeProfile.value.model
+        model: activeProfile.value.model,
+        mode: activeProfile.value.mode || 'openai'
       }
     })
     
     if (res.success) {
-      ElMessage.success('连接成功！API 配置正确。')
+      ElMessage.success(`连接成功！[${formatModeBadge(res.mode || activeProfile.value.mode)}] 模式测试通过。`)
     } else {
       ElMessage.error(`请求失败: ${res.error}`)
     }
@@ -154,6 +207,7 @@ const addProfile = () => {
   profiles.value.push({
     id: newId,
     name: '新配置',
+    mode: 'openai',
     url: '',
     model: '',
     key: ''
@@ -209,6 +263,21 @@ onMounted(() => {
   color: #fff;
 }
 
+.mode-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.06);
+  color: #666;
+}
+
+.profile-item.is-active .mode-badge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
 .input-group {
   margin-bottom: 16px;
 }
@@ -219,6 +288,13 @@ onMounted(() => {
   font-weight: 600;
   color: #86868B;
   margin-bottom: 8px;
+}
+
+.input-tip {
+  margin: 6px 0 0 0;
+  font-size: 12px;
+  color: #86868B;
+  line-height: 1.5;
 }
 
 .api-input {

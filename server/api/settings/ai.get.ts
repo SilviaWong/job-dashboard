@@ -14,18 +14,24 @@ export default defineEventHandler(async (event) => {
           id: 'default',
           activeProfileId: '1',
           profiles: JSON.stringify([
-            { id: '1', name: 'DeepSeek', url: 'https://api.deepseek.com/v1', model: 'deepseek-chat', key: '' }
+            { id: '1', name: 'DeepSeek', mode: 'openai', url: 'https://api.deepseek.com/v1', model: 'deepseek-chat', key: '' }
           ]),
           resume: ''
         }
       })
     }
     
+    const parsedProfiles = JSON.parse(settings.profiles || '[]')
+    const normalizedProfiles = parsedProfiles.map((p: any) => ({
+      ...p,
+      mode: p.mode || (p.model?.toLowerCase().includes('gemini') ? 'gemini' : p.model?.toLowerCase().includes('claude') ? 'claude' : 'openai')
+    }))
+
     return {
       success: true,
       data: {
         ...settings,
-        profiles: JSON.parse(settings.profiles)
+        profiles: normalizedProfiles
       }
     }
   } catch (error: any) {

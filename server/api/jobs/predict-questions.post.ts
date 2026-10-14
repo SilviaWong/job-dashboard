@@ -1,4 +1,5 @@
 import { getPrisma } from '#prisma'
+import { resolveAiRequest } from '../../utils/aiCaller'
 
 const AI_PREDICT_QUESTIONS_PROMPT = `
 你现在是一位资深的技术面试官和 HR 专家。请根据提供的【候选人简历】和【目标岗位 JD】，预测该候选人在此次面试中极有可能会被问到的 5-8 道面试题目。
@@ -88,45 +89,7 @@ ${candidateResume}
 `;
 
     // 4. Call AI API
-    let finalUrl = activeProfile.url.trim()
-    const isClaude = activeProfile.model.toLowerCase().includes('claude') || finalUrl.includes('anthropic')
-    const isGemini = activeProfile.model.toLowerCase().includes('gemini')
-    const key = activeProfile.key
-
-    let headers: any = {
-      'Content-Type': 'application/json'
-    }
-    let reqBody: any = {}
-
-    if (isClaude && !finalUrl.includes('chat/completions')) {
-      headers['x-api-key'] = key
-      headers['anthropic-version'] = '2023-06-01'
-      reqBody = {
-        model: activeProfile.model,
-        max_tokens: 2048,
-        system: AI_PREDICT_QUESTIONS_PROMPT,
-        messages: [{ role: 'user', content: prompt }]
-      }
-    } else if (isGemini && !finalUrl.includes('chat/completions')) {
-      if (!finalUrl.includes(':generateContent')) {
-        finalUrl = finalUrl.replace(/\/$/, '') + `/v1beta/models/${activeProfile.model}:generateContent`
-      }
-      headers['x-goog-api-key'] = key
-      reqBody = {
-        systemInstruction: { parts: [{ text: AI_PREDICT_QUESTIONS_PROMPT }] },
-        contents: [{ role: 'user', parts: [{ text: prompt }] }]
-      }
-    } else {
-      headers['Authorization'] = `Bearer ${key}`
-      reqBody = {
-        model: activeProfile.model,
-        messages: [
-          { role: 'system', content: AI_PREDICT_QUESTIONS_PROMPT },
-          { role: 'user', content: prompt }
-        ],
-        stream: false
-      }
-    }
+    const { finalUrl, headers, reqBody } = resolveAiRequest(activeProfile, AI_PREDICT_QUESTIONS_PROMPT, prompt, 2048)
 
     const response = await fetch(finalUrl, {
       method: 'POST',
