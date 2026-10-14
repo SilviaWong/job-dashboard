@@ -24,7 +24,7 @@
           <div style="display: flex; gap: 14px; align-items: center; flex-wrap: wrap;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="font-size: 14px; color: #606266;">类型:</span>
-              <el-radio-group v-model="agencyFilter" size="small" @change="() => fetchCompanies(false)">
+              <el-radio-group v-model="agencyFilter" size="small" @change="handleFilterChange">
                 <el-radio-button value="direct">直招</el-radio-button>
                 <el-radio-button value="agency">代招</el-radio-button>
                 <el-radio-button value="all">全部</el-radio-button>
@@ -32,14 +32,14 @@
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="font-size: 14px; color: #606266;">职位状态:</span>
-              <el-radio-group v-model="status" size="small" @change="() => fetchCompanies(false)">
+              <el-radio-group v-model="status" size="small" @change="handleFilterChange">
                 <el-radio-button value="all">全部</el-radio-button>
                 <el-radio-button value="normal">常规</el-radio-button>
               </el-radio-group>
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="font-size: 14px; color: #606266;">平台:</span>
-              <el-select v-model="platformFilter" size="small" style="width: 105px;" @change="() => fetchCompanies(false)">
+              <el-select v-model="platformFilter" size="small" style="width: 105px;" @change="handleFilterChange">
                 <el-option label="全部" value="all" />
                 <el-option label="Boss直聘" value="Boss直聘" />
                 <el-option label="前程无忧" value="51job" />
@@ -49,7 +49,7 @@
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="font-size: 14px; color: #606266;">城市:</span>
-              <el-select v-model="cityFilter" size="small" style="width: 110px;" @change="() => fetchCompanies(false)">
+              <el-select v-model="cityFilter" size="small" style="width: 110px;" @change="handleFilterChange">
                 <el-option label="全部城市" value="all" />
                 <el-option label="上海" value="上海" />
                 <el-option label="杭州" value="杭州" />
@@ -64,19 +64,20 @@
               placeholder="搜索公司名称、城市或职位..."
               style="width: 230px"
               clearable
+              @clear="handleFilterChange"
             >
               <template #prefix>
                 <span>🔍</span>
               </template>
             </el-input>
-            <el-button type="primary" size="small" @click="() => fetchCompanies(false)" :loading="loading">
+            <el-button type="primary" size="small" @click="handleFilterChange" :loading="loading">
               刷新数据
             </el-button>
           </div>
         </div>
       </template>
 
-      <div v-loading="loading && page === 1">
+      <div v-loading="loading">
         <div style="margin-bottom: 15px; color: #606266; font-size: 14px; display: flex; justify-content: space-between; align-items: center;">
           <span>共收录 <strong>{{ totalCompanies }}</strong> 家公司</span>
           <span style="font-size: 12px; color: #94a3b8;">提示：勾选企业标题左侧的多选框，可选择 2~4 家企业进行多维度横向对比</span>
@@ -258,14 +259,17 @@
         </el-collapse>
         <el-empty v-else-if="!loading" description="没有找到匹配的企业数据" />
         
-        <!-- Intersection Observer Trigger -->
-        <div ref="loadMoreTrigger" class="observer-trigger" style="height: 10px; width: 100%;"></div>
-
-        <div v-if="loading && page > 1" class="loading-more" style="text-align: center; padding: 15px; color: #909399;">
-          <el-icon class="is-loading"><Loader2 /></el-icon> 正在加载更多数据...
-        </div>
-        <div v-if="!hasMore && companies.length > 0" class="no-more" style="text-align: center; padding: 15px; color: #909399; font-size: 14px;">
-          已经到底啦 ~
+        <!-- 分页组件 -->
+        <div class="pagination-container" v-if="totalCompanies > 0">
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="pageSize"
+            :page-sizes="[10, 20, 50, 100]"
+            :total="totalCompanies"
+            layout="total, sizes, prev, pager, next, jumper"
+            @size-change="handleSizeChange"
+            @current-change="handleCurrentChange"
+          />
         </div>
       </div>
     </el-card>
@@ -278,9 +282,9 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Loader2, Bot } from 'lucide-vue-next'
+import { Bot } from 'lucide-vue-next'
 import { parseSalary } from '~/utils/companyAnalytics'
 
 const loading = ref(false)
@@ -288,8 +292,7 @@ const companies = ref([])
 const totalCompanies = ref(0)
 const searchQuery = ref('')
 const page = ref(1)
-const pageSize = ref(12)
-const hasMore = ref(true)
+const pageSize = ref(20)
 const status = ref('normal')
 const agencyFilter = ref('direct')
 const platformFilter = ref('all')
@@ -377,9 +380,6 @@ const getCompanySalary = (company) => {
   return `${avgMin}~${avgMax}K`
 }
 
-const loadMoreTrigger = ref(null)
-let observer = null
-
 const getPlatformType = (plat) => {
   if (!plat) return 'info'
   if (plat.includes('Boss')) return 'success'
@@ -458,14 +458,7 @@ const toggleAgency = async (company) => {
   }
 }
 
-const fetchCompanies = async (isLoadMore = false) => {
-  if (!isLoadMore) {
-    page.value = 1
-    hasMore.value = true
-  }
-
-  if (!hasMore.value) return
-
+const fetchCompanies = async () => {
   loading.value = true
   try {
     const res = await $fetch('/api/companies', {
@@ -481,16 +474,8 @@ const fetchCompanies = async (isLoadMore = false) => {
     })
 
     if (res.success) {
-      if (isLoadMore) {
-        companies.value = [...companies.value, ...res.data]
-      } else {
-        companies.value = res.data
-      }
-      totalCompanies.value = res.total
-      
-      if (companies.value.length >= res.total) {
-        hasMore.value = false
-      }
+      companies.value = res.data || []
+      totalCompanies.value = res.total || 0
     }
   } catch (error) {
     console.error('Failed to fetch companies:', error)
@@ -500,43 +485,53 @@ const fetchCompanies = async (isLoadMore = false) => {
   }
 }
 
+const handleFilterChange = () => {
+  page.value = 1
+  fetchCompanies()
+}
+
+const handleSizeChange = (val) => {
+  pageSize.value = val
+  page.value = 1
+  fetchCompanies()
+  scrollToTop()
+}
+
+const handleCurrentChange = (val) => {
+  page.value = val
+  fetchCompanies()
+  scrollToTop()
+}
+
+const scrollToTop = () => {
+  if (typeof window !== 'undefined') {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
 // 搜索防抖
 let searchTimeout = null
 watch(searchQuery, () => {
   clearTimeout(searchTimeout)
   searchTimeout = setTimeout(() => {
-    fetchCompanies(false)
+    handleFilterChange()
   }, 300)
 })
 
-// Setup intersection observer for infinite scrolling
 onMounted(() => {
   fetchCompanies()
-
-  observer = new IntersectionObserver((entries) => {
-    if (entries[0].isIntersecting && hasMore.value && !loading.value) {
-      page.value++
-      fetchCompanies(true)
-    }
-  }, {
-    threshold: 0.1
-  })
-
-  if (loadMoreTrigger.value) {
-    observer.observe(loadMoreTrigger.value)
-  }
-})
-
-onUnmounted(() => {
-  if (observer) {
-    observer.disconnect()
-  }
 })
 </script>
 
 <style scoped>
 .companies-page {
   padding: 0;
+}
+
+.pagination-container {
+  margin-top: 24px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .card-header {

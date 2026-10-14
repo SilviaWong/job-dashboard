@@ -112,6 +112,10 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+</template>
+
 <script setup>
 import { computed } from 'vue'
 import { use } from 'echarts/core'
@@ -337,6 +341,15 @@ const rejectionChartOption = computed(() => {
         label: {
           show: total > 0,
           formatter: '{b}\n{d}%'
+        },
+        data: list.length > 0 && total > 0 ? list : [{ name: '暂无淘汰记录', value: 0 }],
+        color: ['#ef4444', '#f59e0b', '#3b82f6', '#94a3b8']
+      }
+    ]
+  }
+})
+</script>
+
 <style scoped>
 .funnel-view {
   display: flex;
@@ -582,16 +595,3 @@ const rejectionChartOption = computed(() => {
   .charts-row { grid-template-columns: 1fr; }
 }
 </style>
-
-        },
-        data: list.length > 0 && total > 0 ? list : [{ name: '暂无淘汰记录', value: 0 }],
-        color: ['#ef4444', '#f59e0b', '#3b82f6', '#94a3b8']
-      }
-    ]
-  }
-})
-</script>
-
-    </div>
-  </div>
-</template>
