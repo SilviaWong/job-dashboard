@@ -13,19 +13,20 @@
         <div class="hero-left">
           <div class="company-title-row">
             <h2 class="company-main-title">{{ analysis.companyName }}</h2>
-            <span v-if="basicInfo.companyFullName && basicInfo.companyFullName !== analysis.companyName" class="company-full-name-sub">
+            <span v-if="!analysis.isAgency && basicInfo.companyFullName && basicInfo.companyFullName !== analysis.companyName" class="company-full-name-sub">
               {{ basicInfo.companyFullName }}
             </span>
           </div>
           <div class="company-meta-tags">
             <el-tag :type="analysis.isAgency ? 'danger' : 'success'" size="small" effect="dark">
-              {{ analysis.isAgency ? '代招/猎头' : '企业直招' }}
+              {{ analysis.isAgency ? '🤝 猎头/代招机构' : '🏢 企业直招' }}
             </el-tag>
             <el-tag v-for="p in analysis.platformSources" :key="p" size="small" type="info">{{ p }}</el-tag>
-            <el-tag v-if="basicInfo.industry" size="small" type="primary" effect="plain">{{ basicInfo.industry }}</el-tag>
-            <el-tag v-if="basicInfo.scale" size="small" type="success" effect="plain">{{ basicInfo.scale }}</el-tag>
-            <el-tag v-if="basicInfo.stage" size="small" type="warning" effect="plain">{{ basicInfo.stage }}</el-tag>
-            <el-tag v-if="basicInfo.companyType" size="small" effect="plain">{{ basicInfo.companyType }}</el-tag>
+            <el-tag v-if="analysis.isAgency" size="small" type="primary" effect="plain">人力资源服务</el-tag>
+            <el-tag v-else-if="basicInfo.industry" size="small" type="primary" effect="plain">{{ basicInfo.industry }}</el-tag>
+            <el-tag v-if="!analysis.isAgency && basicInfo.scale" size="small" type="success" effect="plain">{{ basicInfo.scale }}</el-tag>
+            <el-tag v-if="!analysis.isAgency && basicInfo.stage" size="small" type="warning" effect="plain">{{ basicInfo.stage }}</el-tag>
+            <el-tag v-if="!analysis.isAgency && basicInfo.companyType" size="small" effect="plain">{{ basicInfo.companyType }}</el-tag>
           </div>
         </div>
 
@@ -163,10 +164,31 @@
         </div>
       </div>
 
-      <!-- 招聘数据与趋势画像分界标题 -->
+      <!-- 招聘数据与趋势画像分界标题与平台切换 -->
       <div class="section-divider-bar">
-        <span class="divider-title">📊 招聘画像与趋势分析</span>
-        <span class="divider-sub">基于全网多渠道爬取岗位的综合统计分析</span>
+        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; flex-wrap: wrap; gap: 10px;">
+          <div>
+            <span class="divider-title">📊 招聘画像与趋势分析</span>
+            <span class="divider-sub">基于全网多渠道爬取岗位的综合统计分析</span>
+          </div>
+
+          <!-- 平台筛选切换条 -->
+          <div class="platform-filter-wrapper">
+            <span style="font-size: 13px; color: #475569; font-weight: 500; margin-right: 6px;">🎯 按平台分析数据：</span>
+            <el-radio-group v-model="selectedPlatform" size="small">
+              <el-radio-button value="all">
+                🌐 全渠道汇总 ({{ company?.jobs?.length || 0 }})
+              </el-radio-button>
+              <el-radio-button 
+                v-for="item in analysis.platformDist" 
+                :key="item.platform" 
+                :value="item.platform"
+              >
+                {{ item.platform }} ({{ item.total }}<span v-if="analysis.isAgency && item.headhunter > 0"> · {{ item.headhunter }}代招</span>)
+              </el-radio-button>
+            </el-radio-group>
+          </div>
+        </div>
       </div>
 
       <!-- KPI 数据矩阵 -->
@@ -174,7 +196,12 @@
         <div class="kpi-card">
           <span class="kpi-title">存量在招职位</span>
           <span class="kpi-num primary">{{ analysis.summary.totalJobs }}</span>
-          <span class="kpi-sub">有效职位数</span>
+          <span class="kpi-sub">{{ selectedPlatform === 'all' ? '全渠道有效岗位' : selectedPlatform + ' 渠道岗位' }}</span>
+        </div>
+        <div class="kpi-card" v-if="analysis.isAgency">
+          <span class="kpi-title">招聘性质构成</span>
+          <span class="kpi-num" style="color: #c2185b;">{{ analysis.summary.headhunterJobs }} 岗代招</span>
+          <span class="kpi-sub">代招占比 {{ analysis.summary.headhunterRatio }}%<span v-if="analysis.summary.directJobs > 0"> · 直招 {{ analysis.summary.directJobs }}</span></span>
         </div>
         <div class="kpi-card">
           <span class="kpi-title">近 30 天新发</span>
@@ -261,6 +288,81 @@
           </div>
         </div>
       </div>
+
+      <!-- 平台分布与代招委托客户画像 (Two Columns) -->
+      <div class="two-charts-row" style="margin-top: 18px;">
+        <!-- 全渠道平台分布与性质构成 -->
+        <div class="info-card">
+          <h4 class="chart-title">🌐 全渠道平台分布与性质构成</h4>
+          <div class="platform-stat-list">
+            <div v-for="p in analysis.platformDist" :key="p.platform" class="platform-stat-row">
+              <div class="platform-stat-header">
+                <span class="platform-stat-name">{{ p.platform }}</span>
+                <span class="platform-stat-total">{{ p.total }} 个职位 ({{ p.ratio }}%)</span>
+              </div>
+              <el-progress 
+                :percentage="p.ratio" 
+                :status="p.headhunter > 0 ? 'warning' : 'success'" 
+                :stroke-width="10" 
+                :show-text="false"
+              />
+              <div class="platform-stat-sub">
+                <span v-if="p.headhunter > 0" class="sub-hh">🤝 代招/猎头 {{ p.headhunter }} 岗</span>
+                <span v-if="p.direct > 0" class="sub-direct">🏢 企业直招 {{ p.direct }} 岗</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 猎头代招主要委托客户 (如果为代招机构或有代招客户) -->
+        <div class="info-card" v-if="analysis.clientDist && analysis.clientDist.length > 0">
+          <h4 class="chart-title">🎯 猎头代招主要委托客户榜 (Top 10)</h4>
+          <div class="roles-list">
+            <div v-for="(c, idx) in analysis.clientDist" :key="idx" class="role-item">
+              <span class="role-rank" :class="{ 'top-3': idx < 3 }">{{ idx + 1 }}</span>
+              <span class="role-name" :title="c.name">{{ c.name }}</span>
+              <span class="role-count" style="color: #c2185b; font-weight: 600;">{{ c.count }} 个在招</span>
+            </div>
+          </div>
+        </div>
+        <div class="info-card" v-else>
+          <h4 class="chart-title">🏙️ 业务开展城市分布 (Top 10)</h4>
+          <div class="roles-list">
+            <div v-for="(c, idx) in analysis.cityDist.slice(0, 10)" :key="idx" class="role-item">
+              <span class="role-rank" :class="{ 'top-3': idx < 3 }">{{ idx + 1 }}</span>
+              <span class="role-name">{{ c.name }}</span>
+              <span class="role-count">{{ c.value }} 个在招</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 猎头代理画像：主要客户行业与人员规模分布 (仅猎头代招机构展示) -->
+      <div class="two-charts-row" v-if="analysis.isAgency && ((analysis.clientIndustryDist && analysis.clientIndustryDist.length > 0) || (analysis.clientScaleDist && analysis.clientScaleDist.length > 0))" style="margin-top: 18px;">
+        <!-- 客户所属行业分布 -->
+        <div class="info-card" v-if="analysis.clientIndustryDist && analysis.clientIndustryDist.length > 0">
+          <h4 class="chart-title">🏭 猎头代理主要客户行业画像</h4>
+          <div class="roles-list">
+            <div v-for="(ind, idx) in analysis.clientIndustryDist" :key="idx" class="role-item">
+              <span class="role-rank" :class="{ 'top-3': idx < 3 }">{{ idx + 1 }}</span>
+              <span class="role-name">{{ ind.name }}</span>
+              <span class="role-count" style="color: #1976d2; font-weight: 600;">{{ ind.value }} 岗</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 客户人员规模画像 -->
+        <div class="info-card" v-if="analysis.clientScaleDist && analysis.clientScaleDist.length > 0">
+          <h4 class="chart-title">👥 猎头代理客户人员规模画像</h4>
+          <div class="roles-list">
+            <div v-for="(sc, idx) in analysis.clientScaleDist" :key="idx" class="role-item">
+              <span class="role-rank" :class="{ 'top-3': idx < 3 }">{{ idx + 1 }}</span>
+              <span class="role-name">{{ sc.name }}</span>
+              <span class="role-count" style="color: #2e7d32; font-weight: 600;">{{ sc.value }} 岗</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <template #footer>
@@ -301,10 +403,12 @@ use([
 
 const visible = ref(false)
 const company = ref(null)
+const selectedPlatform = ref('all')
 const descExpanded = ref(false)
 
 const open = (companyData) => {
   company.value = companyData
+  selectedPlatform.value = 'all'
   descExpanded.value = false
   visible.value = true
 }
@@ -342,7 +446,7 @@ const fallbackCopy = (text) => {
 
 const analysis = computed(() => {
   if (!company.value) return null
-  return analyzeCompany(company.value)
+  return analyzeCompany(company.value, selectedPlatform.value)
 })
 
 const basicInfo = computed(() => {
@@ -928,6 +1032,57 @@ const expDistOption = computed(() => {
 .text-muted {
   color: #94a3b8;
   font-size: 12px;
+}
+
+.platform-filter-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.platform-stat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.platform-stat-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.platform-stat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.platform-stat-name {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.platform-stat-total {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.platform-stat-sub {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.sub-hh {
+  color: #c2185b;
+  font-weight: 500;
+}
+
+.sub-direct {
+  color: #059669;
+  font-weight: 500;
 }
 
 @media (max-width: 900px) {

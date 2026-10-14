@@ -1,4 +1,4 @@
-import { cleanCompanyName, type CompanyProcessor, extractCompanyMetadata } from './types'
+import { cleanCompanyName, type CompanyProcessor, extractCompanyMetadata, safeUpdateCompany, findExistingCompanyOnConflict } from './types'
 
 /**
  * 处理并持久化从【前程无忧 51job】平台同步过来的公司数据
@@ -73,21 +73,18 @@ export const process51JobCompany: CompanyProcessor = async (company, platform, p
     // 分支 A：公司记录已存在 -> 执行 UPDATE 更新
     // -----------------------------------------------------------------------
     const meta = extractCompanyMetadata(rawData || company)
-    await prisma.company.update({
-      where: { id: existingCompany.id },
-      data: {
-        rawData2: stringifiedData,
-        companyId: companyId || existingCompany.companyId,
-        companyFullName: cFullName || existingCompany.companyFullName,
-        updatedAt: updatedAt,
-        ...(meta.industry ? { industry: meta.industry } : {}),
-        ...(meta.scale ? { scale: meta.scale } : {}),
-        ...(meta.stage ? { stage: meta.stage } : {}),
-        ...(meta.companyType ? { companyType: meta.companyType } : {}),
-        ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
-        ...(meta.logo ? { logo: meta.logo } : {}),
-        ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
-      }
+    await safeUpdateCompany(prisma, existingCompany.id, {
+      rawData2: stringifiedData,
+      companyId: companyId || existingCompany.companyId,
+      companyFullName: cFullName || existingCompany.companyFullName,
+      updatedAt: updatedAt,
+      ...(meta.industry ? { industry: meta.industry } : {}),
+      ...(meta.scale ? { scale: meta.scale } : {}),
+      ...(meta.stage ? { stage: meta.stage } : {}),
+      ...(meta.companyType ? { companyType: meta.companyType } : {}),
+      ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
+      ...(meta.logo ? { logo: meta.logo } : {}),
+      ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
     })
   } else if (cName) {
     // -----------------------------------------------------------------------
@@ -116,25 +113,26 @@ export const process51JobCompany: CompanyProcessor = async (company, platform, p
     } catch (createErr: any) {
       // 处理并发写入时的唯一索引冲突异常（P2002）
       if (createErr.code === 'P2002') {
-        const newlyCreated = await prisma.company.findFirst({
-          where: { companyName: cName, sourcePlatform: standardizedPlatform }
-        })
+        const newlyCreated = await findExistingCompanyOnConflict(
+          prisma,
+          standardizedPlatform,
+          cName,
+          companyId ? String(companyId) : null,
+          cFullName
+        )
         if (newlyCreated) {
-          await prisma.company.update({
-            where: { id: newlyCreated.id },
-            data: {
-              rawData2: stringifiedData,
-              companyId: companyId || newlyCreated.companyId,
-              companyFullName: cFullName || newlyCreated.companyFullName,
-              updatedAt: updatedAt,
-              ...(meta.industry ? { industry: meta.industry } : {}),
-              ...(meta.scale ? { scale: meta.scale } : {}),
-              ...(meta.stage ? { stage: meta.stage } : {}),
-              ...(meta.companyType ? { companyType: meta.companyType } : {}),
-              ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
-              ...(meta.logo ? { logo: meta.logo } : {}),
-              ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
-            }
+          await safeUpdateCompany(prisma, newlyCreated.id, {
+            rawData2: stringifiedData,
+            companyId: companyId || newlyCreated.companyId,
+            companyFullName: cFullName || newlyCreated.companyFullName,
+            updatedAt: updatedAt,
+            ...(meta.industry ? { industry: meta.industry } : {}),
+            ...(meta.scale ? { scale: meta.scale } : {}),
+            ...(meta.stage ? { stage: meta.stage } : {}),
+            ...(meta.companyType ? { companyType: meta.companyType } : {}),
+            ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
+            ...(meta.logo ? { logo: meta.logo } : {}),
+            ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
           })
         }
       } else {

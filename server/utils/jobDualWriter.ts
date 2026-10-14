@@ -22,6 +22,9 @@ export interface ExtractedJobFields {
     hrPosition?: string | null
     isHeadhunter?: boolean
     clientCompanyName?: string | null
+    clientIndustry?: string | null
+    clientScale?: string | null
+    clientStage?: string | null
     platformPublishTime?: string | null
     platformUpdateTime?: string | null
   }
@@ -105,17 +108,16 @@ export function extractStructuredAndPayload(
     hrPosition: normalized.hrPosition || jobRaw.hrPosition || null,
     isHeadhunter: !!normalized.isHeadhunter,
     clientCompanyName: normalized.clientCompanyName ? String(normalized.clientCompanyName).trim() : null,
+    clientIndustry: normalized.clientIndustry ? String(normalized.clientIndustry).trim() : null,
+    clientScale: normalized.clientScale ? String(normalized.clientScale).trim() : null,
+    clientStage: normalized.clientStage ? String(normalized.clientStage).trim() : null,
     platformPublishTime: normalized.publishDate || null,
     platformUpdateTime: normalized.updateDate || null
   }
 
-  const rawDataStr = stringifiedRawData || (typeof jobRaw === 'string' ? jobRaw : JSON.stringify(jobRaw))
-
   const payloadData = {
     jobDesc: normalized.jobDesc || null,
-    jobUrl: normalized.jobUrl || null,
-    rawData: rawDataStr,
-    rawData2: jobRaw.rawData2 ? (typeof jobRaw.rawData2 === 'string' ? jobRaw.rawData2 : JSON.stringify(jobRaw.rawData2)) : null
+    jobUrl: normalized.jobUrl || null
   }
 
   return {
@@ -126,7 +128,7 @@ export function extractStructuredAndPayload(
 }
 
 /**
- * 同步双写冷数据表 JobDetailPayload
+ * 同步写入职位详情文本与链接附表 JobDetailPayload（避免重复存储大体积 rawData/rawData2）
  */
 export async function syncJobDetailPayload(
   prisma: any,
@@ -146,15 +148,11 @@ export async function syncJobDetailPayload(
       create: {
         jobRecordId,
         jobDesc: payloadData.jobDesc || null,
-        jobUrl: payloadData.jobUrl || null,
-        rawData: payloadData.rawData || null,
-        rawData2: payloadData.rawData2 || null
+        jobUrl: payloadData.jobUrl || null
       },
       update: {
-        jobDesc: payloadData.jobDesc || null,
-        jobUrl: payloadData.jobUrl || null,
-        rawData: payloadData.rawData || null,
-        rawData2: payloadData.rawData2 || null
+        ...(payloadData.jobDesc ? { jobDesc: payloadData.jobDesc } : {}),
+        ...(payloadData.jobUrl ? { jobUrl: payloadData.jobUrl } : {})
       }
     })
   } catch (error) {

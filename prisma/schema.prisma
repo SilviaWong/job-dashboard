@@ -48,9 +48,12 @@ model Job {
   hrName         String?  // 招聘人姓名
   hrPosition     String?  // 招聘人职位
   
-  // 猎头/代招标记与代招客户公司
+  // 猎头/代招标记与代招客户公司及客户环境
   isHeadhunter      Boolean? @default(false)
   clientCompanyName String?
+  clientIndustry    String?  // 代招目标客户行业（如：通信设备、金融、新能源）
+  clientScale       String?  // 代招目标客户规模（如：10000人以上）
+  clientStage       String?  // 代招目标客户融资阶段（如：已上市）
 
   // 阶段一新增：结构化薪资 (千元/月数值，用于毫秒级范围查询与排序)
   salaryMin      Float?

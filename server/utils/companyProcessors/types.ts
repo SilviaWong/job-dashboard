@@ -410,21 +410,18 @@ export async function upsertCompanyFromDetail(prisma: any, input: DetailCompanyI
 
   if (existingCompany) {
     // 2. 更新已有企业：存入 rawData3，同时如果原本的结构化字段为空，智能补全
-    await prisma.company.update({
-      where: { id: existingCompany.id },
-      data: {
-        rawData3: stringifiedData,
-        updatedAt: updatedAt,
-        ...(cleanFullName && !existingCompany.companyFullName ? { companyFullName: cleanFullName } : {}),
-        ...(companyId && !existingCompany.companyId ? { companyId: String(companyId) } : {}),
-        ...(meta.industry && !existingCompany.industry ? { industry: meta.industry } : {}),
-        ...(meta.scale && !existingCompany.scale ? { scale: meta.scale } : {}),
-        ...(meta.stage && !existingCompany.stage ? { stage: meta.stage } : {}),
-        ...(meta.companyType && !existingCompany.companyType ? { companyType: meta.companyType } : {}),
-        ...(meta.creditCode && !existingCompany.creditCode ? { creditCode: meta.creditCode } : {}),
-        ...(meta.logo && !existingCompany.logo ? { logo: meta.logo } : {}),
-        ...(meta.welfareList && !existingCompany.welfareList ? { welfareList: meta.welfareList } : {})
-      }
+    await safeUpdateCompany(prisma, existingCompany.id, {
+      rawData3: stringifiedData,
+      updatedAt: updatedAt,
+      ...(cleanFullName && !existingCompany.companyFullName ? { companyFullName: cleanFullName } : {}),
+      ...(companyId && !existingCompany.companyId ? { companyId: String(companyId) } : {}),
+      ...(meta.industry && !existingCompany.industry ? { industry: meta.industry } : {}),
+      ...(meta.scale && !existingCompany.scale ? { scale: meta.scale } : {}),
+      ...(meta.stage && !existingCompany.stage ? { stage: meta.stage } : {}),
+      ...(meta.companyType && !existingCompany.companyType ? { companyType: meta.companyType } : {}),
+      ...(meta.creditCode && !existingCompany.creditCode ? { creditCode: meta.creditCode } : {}),
+      ...(meta.logo && !existingCompany.logo ? { logo: meta.logo } : {}),
+      ...(meta.welfareList && !existingCompany.welfareList ? { welfareList: meta.welfareList } : {})
     })
   } else {
     // 3. 创建新企业：以详情页为第一入口建立档案
@@ -447,18 +444,19 @@ export async function upsertCompanyFromDetail(prisma: any, input: DetailCompanyI
       })
     } catch (err: any) {
       if (err.code === 'P2002') {
-        const retryComp = await prisma.company.findFirst({
-          where: { companyName: cleanName || cleanFullName, sourcePlatform: platform }
-        })
+        const retryComp = await findExistingCompanyOnConflict(
+          prisma,
+          platform,
+          cleanName || cleanFullName,
+          companyId ? String(companyId) : null,
+          cleanFullName
+        )
         if (retryComp) {
-          await prisma.company.update({
-            where: { id: retryComp.id },
-            data: {
-              rawData3: stringifiedData,
-              updatedAt: updatedAt,
-              ...(cleanFullName && !retryComp.companyFullName ? { companyFullName: cleanFullName } : {}),
-              ...(companyId && !retryComp.companyId ? { companyId: String(companyId) } : {})
-            }
+          await safeUpdateCompany(prisma, retryComp.id, {
+            rawData3: stringifiedData,
+            updatedAt: updatedAt,
+            ...(cleanFullName && !retryComp.companyFullName ? { companyFullName: cleanFullName } : {}),
+            ...(companyId && !retryComp.companyId ? { companyId: String(companyId) } : {})
           })
         }
       } else {
@@ -467,3 +465,85 @@ export async function upsertCompanyFromDetail(prisma: any, input: DetailCompanyI
     }
   }
 }
+
+/**
+ * 安全更新 Company 表记录：
+ * 当更新 companyId 或 companyName 触发 (companyName, sourcePlatform, companyId) 唯一索引冲突 (P2002) 时，
+ * 自动剥离冲突的唯一键字段并重试更新其余元数据字段，彻底避免并发同步或同公司多记录时报错中断。
+ */
+export async function safeUpdateCompany(prisma: any, id: string, data: Record<string, any>) {
+  try {
+    return await prisma.company.update({
+      where: { id },
+      data
+    })
+  } catch (err: any) {
+    if (err?.code === 'P2002') {
+      const { companyId: _cid, companyName: _cname, sourcePlatform: _sp, ...restData } = data
+      if (Object.keys(restData).length > 0) {
+        try {
+          return await prisma.company.update({
+            where: { id },
+            data: restData
+          })
+        } catch {
+          // 忽略二次冲突
+        }
+      }
+      return null
+    }
+    throw err
+  }
+}
+
+/**
+ * 当 prisma.company.create 触发 P2002 唯一键冲突时，按精确优先级回查已存在的 Company 记录：
+ * 优先匹配 (sourcePlatform, companyName, companyId) 完全一致的记录，避免在存在 companyId=null 的旧记录时误命中旧记录并二次触发 P2002。
+ */
+export async function findExistingCompanyOnConflict(
+  prisma: any,
+  platform: string,
+  companyName?: string | null,
+  companyId?: string | null,
+  companyFullName?: string | null
+) {
+  if (companyId && companyName) {
+    const exact = await prisma.company.findFirst({
+      where: {
+        sourcePlatform: platform,
+        companyName: String(companyName),
+        companyId: String(companyId)
+      }
+    })
+    if (exact) return exact
+  }
+  if (companyId) {
+    const byId = await prisma.company.findFirst({
+      where: {
+        sourcePlatform: platform,
+        companyId: String(companyId)
+      }
+    })
+    if (byId) return byId
+  }
+  if (companyName) {
+    const byName = await prisma.company.findFirst({
+      where: {
+        sourcePlatform: platform,
+        companyName: String(companyName)
+      }
+    })
+    if (byName) return byName
+  }
+  if (companyFullName) {
+    const byFull = await prisma.company.findFirst({
+      where: {
+        sourcePlatform: platform,
+        companyFullName: String(companyFullName)
+      }
+    })
+    if (byFull) return byFull
+  }
+  return null
+}
+

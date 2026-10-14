@@ -1,5 +1,5 @@
 import type { JobProcessor } from './types'
-import { cleanCompanyName, extractCompanyMetadata, resolveCompanyFullName, isCorporateName } from '../companyProcessors/types'
+import { cleanCompanyName, extractCompanyMetadata, resolveCompanyFullName, isCorporateName, safeUpdateCompany, findExistingCompanyOnConflict } from '../companyProcessors/types'
 import { computeDescHash } from '../descHash'
 import { resolveJobHrActive } from '../hrAnalytics'
 import { extractStructuredAndPayload, syncJobDetailPayload } from '../jobDualWriter'
@@ -38,7 +38,31 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
     }
   }
   // 猎聘网标识公司直招还是猎头/代招的字段：jobKind，1表示猎头/代招，2表示公司直招
-  if (jobInfo.jobKind === '1' || jobInfo.jobKind == 1) {
+  // 1. 先由源数据判断（以源数据为主）
+  const isSourceHeadhunter = jobInfo.jobKind === '1' || jobInfo.jobKind == 1 || String(job.jobKind) === '1' || job['岗位类型_外包猎头'] === '猎头/代招'
+
+  // 2. 检查所属公司是否在后台被手动标记为代招/猎头机构（手动标记作为补充）
+  let isHeadhunterJob = isSourceHeadhunter
+  if (!isHeadhunterJob) {
+    const candidateName = cleanCompanyName(compInfo.fullCompanyName || compInfo.compName || hrCoName || '')
+    if (candidateName) {
+      const agencyRecord = await prisma.company.findFirst({
+        where: {
+          OR: [
+            { companyName: candidateName },
+            { companyFullName: candidateName }
+          ],
+          isAgency: true
+        },
+        select: { id: true }
+      })
+      if (agencyRecord) {
+        isHeadhunterJob = true
+      }
+    }
+  }
+
+  if (isHeadhunterJob) {
     companyName = compInfo.fullCompanyName || hrCoName || ''
     companyFullName = compInfo.fullCompanyName || hrCoName || ''
   } else {
@@ -49,7 +73,9 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
 
   // 对公司名称和公司全称进行中文括号转英文括号，以及去除空格的处理
   const cleanName = cleanCompanyName(companyName)
-  const detailFullName = job['公司全称'] || jobDetailJson?.hiringOrganization?.name || compInfo.fullCompanyName || compInfo.compFullName || ''
+  const detailFullName = isHeadhunterJob
+    ? (compInfo.fullCompanyName || hrCoName || '')
+    : (job['公司全称'] || jobDetailJson?.hiringOrganization?.name || compInfo.fullCompanyName || compInfo.compFullName || '')
   const listFullName = cleanCompanyName(companyFullName)
 
   const stringifiedData = JSON.stringify(job)
@@ -58,6 +84,16 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
   const descHash = computeDescHash(job)
   const hr = resolveJobHrActive(job, null, platform)
   const { structuredJobData, payloadData } = extractStructuredAndPayload(job, platform, stringifiedData)
+  if (isHeadhunterJob) {
+    const clientBrand = cleanCompanyName(compInfo.compName || jobDetailJson?.hiringOrganization?.name || job['公司名称'] || '')
+    if (clientBrand && clientBrand !== cleanName) {
+      structuredJobData.clientCompanyName = clientBrand
+    }
+    structuredJobData.isHeadhunter = true
+    structuredJobData.clientIndustry = compInfo.compIndustry || job['公司行业'] || null
+    structuredJobData.clientScale = compInfo.compScale || job['公司规模'] || null
+    structuredJobData.clientStage = compInfo.compStage || job['融资阶段'] || null
+  }
 
   // 检查已有职位指纹与现有全称（用于变动检测与全称防降级保护）
   const existingJob = await prisma.job.findUnique({
@@ -166,16 +202,16 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
     }
   }
 
-  // 再保存公司数据
+  // 再保存公司数据（代招公司元数据隔离保护防火墙）
   const meta = extractCompanyMetadata(job, compInfo)
   const companyRawData = {
     ...compInfo,
     companyId: companyId || compInfo.compId,
     companyName: cleanName || compInfo.compName,
     companyFullName: finalFullName,
-    companyIndustry: meta.industry || compInfo.compIndustry || '',
-    companyScale: meta.scale || compInfo.compScale || '',
-    companyStage: meta.stage || compInfo.compStage || '',
+    companyIndustry: isHeadhunterJob ? '人力资源服务' : (meta.industry || compInfo.compIndustry || ''),
+    companyScale: isHeadhunterJob ? '' : (meta.scale || compInfo.compScale || ''),
+    companyStage: isHeadhunterJob ? '' : (meta.stage || compInfo.compStage || ''),
     sourcePlatform: '猎聘'
   }
 
@@ -197,25 +233,29 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
 
     // 第三步：执行入库操作
     if (existingCompany) {
-      // 场景 A：公司已存在，增量补齐原本缺失的结构化字段
       const needUpdate: any = {}
-      if ((!existingCompany.companyFullName || (!isCorporateName(existingCompany.companyFullName) && isCorporateName(finalFullName))) && finalFullName) {
-        needUpdate.companyFullName = finalFullName
+      if (isHeadhunterJob) {
+        needUpdate.isAgency = true
+        if (!existingCompany.industry || existingCompany.industry !== '人力资源服务') {
+          needUpdate.industry = '人力资源服务'
+        }
+      } else if (!existingCompany.isAgency) {
+        // 场景 A：仅企业直招公司允许补齐所属行业与规模
+        if ((!existingCompany.companyFullName || (!isCorporateName(existingCompany.companyFullName) && isCorporateName(finalFullName))) && finalFullName) {
+          needUpdate.companyFullName = finalFullName
+        }
+        if (!existingCompany.companyId && companyId) needUpdate.companyId = String(companyId)
+        if (!existingCompany.industry && meta.industry) needUpdate.industry = meta.industry
+        if (!existingCompany.scale && meta.scale) needUpdate.scale = meta.scale
+        if (!existingCompany.stage && meta.stage) needUpdate.stage = meta.stage
+        if (!existingCompany.companyType && meta.companyType) needUpdate.companyType = meta.companyType
+        if (!existingCompany.welfareList && meta.welfareList) needUpdate.welfareList = meta.welfareList
       }
-      if (!existingCompany.companyId && companyId) needUpdate.companyId = String(companyId)
-      if (!existingCompany.industry && meta.industry) needUpdate.industry = meta.industry
-      if (!existingCompany.scale && meta.scale) needUpdate.scale = meta.scale
-      if (!existingCompany.stage && meta.stage) needUpdate.stage = meta.stage
-      if (!existingCompany.companyType && meta.companyType) needUpdate.companyType = meta.companyType
-      if (!existingCompany.welfareList && meta.welfareList) needUpdate.welfareList = meta.welfareList
       if (!existingCompany.rawData) needUpdate.rawData = JSON.stringify(companyRawData)
 
       if (Object.keys(needUpdate).length > 0) {
         needUpdate.updatedAt = updatedAt
-        await prisma.company.update({
-          where: { id: existingCompany.id },
-          data: needUpdate
-        })
+        await safeUpdateCompany(prisma, existingCompany.id, needUpdate)
       }
     } else if (cleanName) {
       // 场景 B：公司不存在，尝试新建
@@ -226,33 +266,42 @@ export const processLiepinJob: JobProcessor = async (job, platform, prisma) => {
             companyFullName: finalFullName ? String(finalFullName) : undefined,
             sourcePlatform: '猎聘',
             companyId: companyId ? String(companyId) : undefined,
-            industry: meta.industry || undefined,
-            scale: meta.scale || undefined,
-            stage: meta.stage || undefined,
-            companyType: meta.companyType || undefined,
-            welfareList: meta.welfareList || undefined,
+            isAgency: isHeadhunterJob,
+            industry: isHeadhunterJob ? '人力资源服务' : (meta.industry || undefined),
+            scale: isHeadhunterJob ? undefined : (meta.scale || undefined),
+            stage: isHeadhunterJob ? undefined : (meta.stage || undefined),
+            companyType: isHeadhunterJob ? undefined : (meta.companyType || undefined),
+            welfareList: isHeadhunterJob ? undefined : (meta.welfareList || undefined),
             rawData: JSON.stringify(companyRawData)
           }
         })
       } catch (err: any) {
         if (err.code === 'P2002') {
-          const newlyInserted = await prisma.company.findFirst({
-            where: { companyName: cleanName, sourcePlatform: '猎聘' }
-          })
+          const newlyInserted = await findExistingCompanyOnConflict(
+            prisma,
+            '猎聘',
+            cleanName,
+            companyId ? String(companyId) : null,
+            finalFullName ? String(finalFullName) : null
+          )
           if (newlyInserted) {
             const needUpdate: any = {}
-            if ((!newlyInserted.companyFullName || (!isCorporateName(newlyInserted.companyFullName) && isCorporateName(finalFullName))) && finalFullName) {
-              needUpdate.companyFullName = finalFullName
+            if (isHeadhunterJob) {
+              needUpdate.isAgency = true
+              if (!newlyInserted.industry || newlyInserted.industry !== '人力资源服务') {
+                needUpdate.industry = '人力资源服务'
+              }
+            } else if (!newlyInserted.isAgency) {
+              if ((!newlyInserted.companyFullName || (!isCorporateName(newlyInserted.companyFullName) && isCorporateName(finalFullName))) && finalFullName) {
+                needUpdate.companyFullName = finalFullName
+              }
+              if (!newlyInserted.companyId && companyId) needUpdate.companyId = String(companyId)
+              if (!newlyInserted.industry && meta.industry) needUpdate.industry = meta.industry
+              if (!newlyInserted.scale && meta.scale) needUpdate.scale = meta.scale
             }
-            if (!newlyInserted.companyId && companyId) needUpdate.companyId = String(companyId)
-            if (!newlyInserted.industry && meta.industry) needUpdate.industry = meta.industry
-            if (!newlyInserted.scale && meta.scale) needUpdate.scale = meta.scale
             if (Object.keys(needUpdate).length > 0) {
               needUpdate.updatedAt = updatedAt
-              await prisma.company.update({
-                where: { id: newlyInserted.id },
-                data: needUpdate
-              })
+              await safeUpdateCompany(prisma, newlyInserted.id, needUpdate)
             }
           }
         } else {

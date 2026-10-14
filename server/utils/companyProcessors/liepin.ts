@@ -1,4 +1,4 @@
-import { cleanCompanyName, type CompanyProcessor, extractCompanyMetadata } from './types'
+import { cleanCompanyName, type CompanyProcessor, extractCompanyMetadata, safeUpdateCompany, findExistingCompanyOnConflict } from './types'
 
 /**
  * 处理并持久化从【猎聘】平台同步过来的公司数据
@@ -97,22 +97,19 @@ export const processLiepinCompany: CompanyProcessor = async (company, platform, 
       // console.log(`[Liepin Company Processor] 来源为 ${dataSource || 'liepin_companies_db_v1'}，企业 [${existingCompany.companyName}] 已存在且 rawData2 不为空，跳过更新`)
     } else {
       const meta = extractCompanyMetadata(rawData || company)
-      await prisma.company.update({
-        where: { id: existingCompany.id },
-        data: {
-          rawData2: stringifiedData,
-          companyId: companyId || existingCompany.companyId,
-          companyFullName: cFullName || existingCompany.companyFullName,
-          companyName: cName || existingCompany.companyName,
-          updatedAt: updatedAt,
-          ...(meta.industry ? { industry: meta.industry } : {}),
-          ...(meta.scale ? { scale: meta.scale } : {}),
-          ...(meta.stage ? { stage: meta.stage } : {}),
-          ...(meta.companyType ? { companyType: meta.companyType } : {}),
-          ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
-          ...(meta.logo ? { logo: meta.logo } : {}),
-          ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
-        }
+      await safeUpdateCompany(prisma, existingCompany.id, {
+        rawData2: stringifiedData,
+        companyId: companyId || existingCompany.companyId,
+        companyFullName: cFullName || existingCompany.companyFullName,
+        companyName: cName || existingCompany.companyName,
+        updatedAt: updatedAt,
+        ...(meta.industry ? { industry: meta.industry } : {}),
+        ...(meta.scale ? { scale: meta.scale } : {}),
+        ...(meta.stage ? { stage: meta.stage } : {}),
+        ...(meta.companyType ? { companyType: meta.companyType } : {}),
+        ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
+        ...(meta.logo ? { logo: meta.logo } : {}),
+        ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
       })
     }
   } else if (cName || cFullName) {
@@ -142,35 +139,30 @@ export const processLiepinCompany: CompanyProcessor = async (company, platform, 
     } catch (createErr: any) {
       // 处理唯一索引冲突异常（P2002），防止并发写入时报错
       if (createErr.code === 'P2002') {
-        const newlyCreated = await prisma.company.findFirst({
-          where: {
-            sourcePlatform: standardizedPlatform,
-            OR: [
-              ...(cFullName ? [{ companyFullName: cFullName }] : []),
-              ...(cName ? [{ companyName: cName }] : [])
-            ]
-          }
-        })
+        const newlyCreated = await findExistingCompanyOnConflict(
+          prisma,
+          standardizedPlatform,
+          cName || cFullName,
+          companyId ? String(companyId) : null,
+          cFullName || cName
+        )
         if (newlyCreated) {
           if (!isDetailSource && newlyCreated.rawData2) {
             // 已有 rawData2 且来源为列表，跳过
           } else {
-            await prisma.company.update({
-              where: { id: newlyCreated.id },
-              data: {
-                rawData2: stringifiedData,
-                companyId: companyId || newlyCreated.companyId,
-                companyFullName: cFullName || newlyCreated.companyFullName,
-                companyName: cName || newlyCreated.companyName,
-                updatedAt: updatedAt,
-                ...(meta.industry ? { industry: meta.industry } : {}),
-                ...(meta.scale ? { scale: meta.scale } : {}),
-                ...(meta.stage ? { stage: meta.stage } : {}),
-                ...(meta.companyType ? { companyType: meta.companyType } : {}),
-                ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
-                ...(meta.logo ? { logo: meta.logo } : {}),
-                ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
-              }
+            await safeUpdateCompany(prisma, newlyCreated.id, {
+              rawData2: stringifiedData,
+              companyId: companyId || newlyCreated.companyId,
+              companyFullName: cFullName || newlyCreated.companyFullName,
+              companyName: cName || newlyCreated.companyName,
+              updatedAt: updatedAt,
+              ...(meta.industry ? { industry: meta.industry } : {}),
+              ...(meta.scale ? { scale: meta.scale } : {}),
+              ...(meta.stage ? { stage: meta.stage } : {}),
+              ...(meta.companyType ? { companyType: meta.companyType } : {}),
+              ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
+              ...(meta.logo ? { logo: meta.logo } : {}),
+              ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
             })
           }
         }

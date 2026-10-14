@@ -1,5 +1,5 @@
 import type { JobProcessor } from './types'
-import { cleanCompanyName, extractCompanyMetadata, resolveCompanyFullName, isCorporateName } from '../companyProcessors/types'
+import { cleanCompanyName, extractCompanyMetadata, resolveCompanyFullName, isCorporateName, safeUpdateCompany, findExistingCompanyOnConflict } from '../companyProcessors/types'
 import { computeDescHash } from '../descHash'
 import { resolveJobHrActive } from '../hrAnalytics'
 import { extractStructuredAndPayload, syncJobDetailPayload } from '../jobDualWriter'
@@ -310,10 +310,7 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
 
       if (Object.keys(needUpdate).length > 0) {
         needUpdate.updatedAt = new Date()
-        await prisma.company.update({
-          where: { id: existingCompany.id },
-          data: needUpdate
-        })
+        await safeUpdateCompany(prisma, existingCompany.id, needUpdate)
       }
     } else if (cleanName) {
       // 场景 B：公司不存在，尝试新建
@@ -336,9 +333,13 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
         })
       } catch (err: any) {
         if (err.code === 'P2002') {
-          const newlyInserted = await prisma.company.findFirst({
-            where: { companyName: cleanName, sourcePlatform: '智联' }
-          })
+          const newlyInserted = await findExistingCompanyOnConflict(
+            prisma,
+            '智联',
+            cleanName,
+            companyId ? String(companyId) : null,
+            finalFullName ? String(finalFullName) : null
+          )
           if (newlyInserted) {
             const needUpdate: any = {}
             if ((!newlyInserted.companyFullName || (!isCorporateName(newlyInserted.companyFullName) && isCorporateName(finalFullName))) && finalFullName) {
@@ -354,10 +355,7 @@ export const processZhilianJob: JobProcessor = async (job, platform, prisma) => 
             if (!newlyInserted.welfareList && meta.welfareList) needUpdate.welfareList = meta.welfareList
             if (Object.keys(needUpdate).length > 0) {
               needUpdate.updatedAt = new Date()
-              await prisma.company.update({
-                where: { id: newlyInserted.id },
-                data: needUpdate
-              })
+              await safeUpdateCompany(prisma, newlyInserted.id, needUpdate)
             }
           }
         } else {

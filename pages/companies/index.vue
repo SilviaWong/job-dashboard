@@ -39,7 +39,7 @@
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="font-size: 14px; color: #606266;">平台:</span>
-              <el-select v-model="platformFilter" size="small" style="width: 110px;" @change="() => fetchCompanies(false)">
+              <el-select v-model="platformFilter" size="small" style="width: 105px;" @change="() => fetchCompanies(false)">
                 <el-option label="全部" value="all" />
                 <el-option label="Boss直聘" value="Boss直聘" />
                 <el-option label="前程无忧" value="51job" />
@@ -47,10 +47,22 @@
                 <el-option label="智联招聘" value="智联" />
               </el-select>
             </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 14px; color: #606266;">城市:</span>
+              <el-select v-model="cityFilter" size="small" style="width: 110px;" @change="() => fetchCompanies(false)">
+                <el-option label="全部城市" value="all" />
+                <el-option label="上海" value="上海" />
+                <el-option label="杭州" value="杭州" />
+                <el-option label="深圳" value="深圳" />
+                <el-option label="苏州" value="苏州" />
+                <el-option label="北京" value="北京" />
+                <el-option label="广州" value="广州" />
+              </el-select>
+            </div>
             <el-input
               v-model="searchQuery"
-              placeholder="搜索公司名称..."
-              style="width: 260px"
+              placeholder="搜索公司名称、城市或职位..."
+              style="width: 230px"
               clearable
             >
               <template #prefix>
@@ -90,12 +102,15 @@
                   <span class="company-name" :class="{'is-agency-name': company.isAgency}">
                     {{ company.companyFullName || company.companyName }}
                     <span 
-                      v-if="company.brandName && company.companyFullName && company.brandName !== company.companyFullName" 
+                      v-if="!company.isAgency && company.brandName && company.companyFullName && company.brandName !== company.companyFullName" 
                       class="company-brand-sub"
                     >
                       ({{ company.brandName }})
                     </span>
                   </span>
+                  <el-tag size="small" v-if="company.isAgency" type="danger" effect="plain" style="margin-left: 6px;">
+                    🤝 猎头/代招
+                  </el-tag>
                   <el-switch
                     v-model="company.isAgency"
                     inline-prompt
@@ -105,10 +120,20 @@
                     @change="toggleAgency(company)"
                     @click.stop
                   />
-                  <el-tag size="small" type="info" v-if="company.industry || company.rawData?.industry">
-                    {{ company.industry || company.rawData?.industry }}
+                  <!-- 职位所在城市标签 -->
+                  <el-tag 
+                    v-if="company.cities && company.cities.length > 0" 
+                    size="small" 
+                    type="primary" 
+                    effect="light"
+                    style="margin-right: 6px;"
+                  >
+                    📍 {{ company.cities.slice(0, 3).join(' · ') }}<span v-if="company.cities.length > 3"> 等{{ company.cities.length }}城</span>
                   </el-tag>
-                  <el-tag size="small" type="success" v-if="company.scale || company.rawData?.scale">
+                  <el-tag size="small" type="info" v-if="company.isAgency || company.industry || company.rawData?.industry">
+                    {{ company.isAgency ? '人力资源服务' : (company.industry || company.rawData?.industry) }}
+                  </el-tag>
+                  <el-tag size="small" type="success" v-if="!company.isAgency && (company.scale || company.rawData?.scale)">
                     {{ company.scale || company.rawData?.scale }}
                   </el-tag>
                   <el-tag size="small" type="success" effect="dark" style="margin-left: 10px;">
@@ -125,7 +150,7 @@
                       :type="getPlatformType(plat)"
                       effect="dark"
                     >
-                      {{ plat }}
+                      {{ plat }} <span v-if="company.platformStats?.[plat]?.total">({{ company.platformStats[plat].total }}<span v-if="company.isAgency && company.platformStats[plat].headhunter">·代招</span>)</span>
                     </el-tag>
                   </div>
                   <!-- 打开画像与趋势弹窗 -->
@@ -144,8 +169,22 @@
             </template>
             
             <div class="company-content">
+              <!-- 猎头代招委托方客户条 -->
+              <div v-if="company.isAgency && company.clientCompanies && company.clientCompanies.length > 0" class="agency-clients-bar">
+                <span class="agency-clients-label">🎯 委托方客户 (共 {{ company.clientCompanies.length }} 家)：</span>
+                <span class="agency-clients-text">
+                  {{ company.clientCompanies.slice(0, 6).join('、') }}<span v-if="company.clientCompanies.length > 6"> 等</span>
+                </span>
+              </div>
               <!-- 企业简明招聘雷达条 -->
               <div class="company-quick-radar">
+                <div class="radar-item" v-if="company.cities && company.cities.length > 0">
+                  <span class="radar-label">在招城市</span>
+                  <span class="radar-val" :title="company.cities.join('、')">
+                    {{ company.cities.slice(0, 2).join(' · ') }}<span v-if="company.cities.length > 2"> (+{{ company.cities.length - 2 }})</span>
+                  </span>
+                </div>
+                <div class="radar-divider" v-if="company.cities && company.cities.length > 0"></div>
                 <div class="radar-item">
                   <span class="radar-label">招聘热度</span>
                   <span class="radar-val" :style="{ color: getCompanyHeat(company).color }">
@@ -254,6 +293,7 @@ const hasMore = ref(true)
 const status = ref('normal')
 const agencyFilter = ref('direct')
 const platformFilter = ref('all')
+const cityFilter = ref('all')
 
 const jobDetailDrawerRef = ref(null)
 const compareModalRef = ref(null)
@@ -435,7 +475,8 @@ const fetchCompanies = async (isLoadMore = false) => {
         query: searchQuery.value,
         status: status.value,
         agencyFilter: agencyFilter.value,
-        platformFilter: platformFilter.value
+        platformFilter: platformFilter.value,
+        cityFilter: cityFilter.value
       }
     })
 
@@ -706,5 +747,29 @@ onUnmounted(() => {
 .job-date {
   font-size: 12px;
   color: #94a3b8;
+}
+
+.agency-clients-bar {
+  display: flex;
+  align-items: center;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  padding: 6px 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.agency-clients-label {
+  font-weight: 600;
+  color: #be123c;
+  flex-shrink: 0;
+}
+
+.agency-clients-text {
+  color: #9f1239;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

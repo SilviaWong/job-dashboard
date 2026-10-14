@@ -63,11 +63,13 @@
                 <el-option label="🔥 活跃 (30天内)" value="new_30d"></el-option>
                 <el-option label="⚠️ 常驻 (>60天)" value="stale_60d"></el-option>
               </el-select>
-              <el-select v-model="sortBy" placeholder="排序方式" style="width: 145px" @change="() => fetchJobs(false)">
+              <el-select v-model="sortBy" placeholder="排序方式" style="width: 155px" @change="() => fetchJobs(false)">
                 <el-option label="🕒 最近变动" value="updatedAt"></el-option>
                 <el-option label="✨ 最新首发" value="publishTime"></el-option>
                 <el-option label="🔄 最新刷新" value="updateTime"></el-option>
                 <el-option label="📥 最新收录" value="firstSeen"></el-option>
+                <el-option label="🤖 AI 评分从高到低" value="aiScoreDesc"></el-option>
+                <el-option label="🤖 AI 评分从低到高" value="aiScoreAsc"></el-option>
                 <el-option label="💰 薪资从高到低" value="salaryDesc"></el-option>
                 <el-option label="💴 薪资从低到高" value="salaryAsc"></el-option>
               </el-select>
@@ -230,7 +232,11 @@
                 <span class="tag-item" v-for="(tag, idx) in job.normalizedData.welfareList.slice(0, 5)" :key="idx">{{ tag }}</span>
               </template>
               <!-- 猎头/代招标签，如果前面有其他标签，加一点间隔 -->
-              <span class="tag-item" style="background-color: #fce4ec; color: #c2185b; border: 1px solid #f8bbd0;" v-if="job.isHeadhunter || job.normalizedData?.isHeadhunter">猎头/代招<span v-if="job.clientCompanyName || job.normalizedData?.clientCompanyName"> ({{ job.clientCompanyName || job.normalizedData?.clientCompanyName }})</span></span> 
+              <span class="tag-item" style="background-color: #fce4ec; color: #c2185b; border: 1px solid #f8bbd0;" v-if="job.isHeadhunter || job.normalizedData?.isHeadhunter">
+                🤝 猎头代招<span v-if="job.clientCompanyName || job.normalizedData?.clientCompanyName"> ➔ 客户: {{ job.clientCompanyName || job.normalizedData?.clientCompanyName }}</span><span v-if="job.clientIndustry || job.normalizedData?.clientIndustry"> ({{ job.clientIndustry || job.normalizedData?.clientIndustry }})</span>
+              </span> 
+              <!-- 跨平台重复在招岗位标签 -->
+              <span class="tag-item" style="background-color: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd;" v-if="job.otherPlatforms && job.otherPlatforms.length > 0">🔗 跨平台同岗 ({{ job.otherPlatforms.join('/') }})</span>
             </div>
 
             <!-- Meta Info & Lifecycle Timeline Tooltip -->

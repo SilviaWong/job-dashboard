@@ -42,6 +42,7 @@ export default defineEventHandler(async (event) => {
         hrActiveStatus: true,
         hrActiveLevel: true,
         city: true,
+        cityCode: true,
         area: true,
         businessDistrict: true,
         address: true,
@@ -51,13 +52,16 @@ export default defineEventHandler(async (event) => {
         hrName: true,
         hrPosition: true,
         isHeadhunter: true,
+        clientCompanyName: true,
+        clientIndustry: true,
+        clientScale: true,
+        clientStage: true,
+        dataSource: true,
         platformPublishTime: true,
         platformUpdateTime: true,
         status: true
       }
     })
-
-    const jobIds = jobs.map(j => j.jobId)
 
     // 1.1 查询 ai_job_result 数据表（不使用超长 IN 列表，避免 too many SQL variables 报错）
     const aiResults = await prisma.aiJobResult.findMany({
@@ -76,10 +80,24 @@ export default defineEventHandler(async (event) => {
     })
     const blacklistedSet = new Set(blacklisted.map(b => b.companyName))
 
-    // 1.3 获取公司黑名单集合（完成基础准备）
-
-    // 2. 规范化与企业映射构建：获取所有 Company 结构化工商信息
-    const companiesData = await prisma.company.findMany()
+    // 2. 规范化与企业映射构建：仅加载结构化字段（避免全表扫描 9000+ 条大体积 rawData JSON）
+    const companiesData = await prisma.company.findMany({
+      select: {
+        id: true,
+        companyName: true,
+        companyFullName: true,
+        companyId: true,
+        sourcePlatform: true,
+        isAgency: true,
+        industry: true,
+        scale: true,
+        stage: true,
+        companyType: true,
+        creditCode: true,
+        logo: true,
+        welfareList: true
+      }
+    })
     const companyMap = new Map<string, any>()
 
     for (const c of companiesData) {
@@ -89,6 +107,7 @@ export default defineEventHandler(async (event) => {
       if (!key || key === '未知公司') continue
 
       const parsedCompany = {
+        _recordIds: [c.id],
         companyName: key,
         companyFullName: cleanFull || cleanName,
         brandName: (cleanName && cleanName !== cleanFull) ? cleanName : '',
@@ -102,15 +121,16 @@ export default defineEventHandler(async (event) => {
         creditCode: c.creditCode,
         logo: c.logo,
         welfareList: c.welfareList ? (() => { try { return JSON.parse(c.welfareList) } catch { return [] } })() : [],
-        rawData: c.rawData ? (() => { try { return JSON.parse(c.rawData) } catch { return null } })() : null,
-        rawData2: c.rawData2 ? (() => { try { return JSON.parse(c.rawData2) } catch { return null } })() : null,
-        rawData3: c.rawData3 ? (() => { try { return JSON.parse(c.rawData3) } catch { return null } })() : null,
+        rawData: null as any,
+        rawData2: null as any,
+        rawData3: null as any,
       }
 
       if (!companyMap.has(key)) {
         companyMap.set(key, parsedCompany)
       } else {
         const existing = companyMap.get(key)
+        existing._recordIds.push(c.id)
         if (c.isAgency) existing.isAgency = true
         if (!existing.creditCode && c.creditCode) existing.creditCode = c.creditCode
         if (!existing.industry && c.industry) existing.industry = c.industry
@@ -124,9 +144,6 @@ export default defineEventHandler(async (event) => {
         if ((!existing.welfareList || existing.welfareList.length === 0) && parsedCompany.welfareList?.length > 0) {
           existing.welfareList = parsedCompany.welfareList
         }
-        if (!existing.rawData && parsedCompany.rawData) existing.rawData = parsedCompany.rawData
-        if (!existing.rawData2 && parsedCompany.rawData2) existing.rawData2 = parsedCompany.rawData2
-        if (!existing.rawData3 && parsedCompany.rawData3) existing.rawData3 = parsedCompany.rawData3
       }
 
       // 如果有简写品牌名，也建立索引便于通过简称反查到工商信息
@@ -163,19 +180,68 @@ export default defineEventHandler(async (event) => {
           companyFullName: cleanFull || nodeKey,
           brandName: brandName,
           jobs: [],
-          platformSources: new Set<string>()
+          platformSources: new Set<string>(),
+          platformStats: {} as Record<string, { total: number; headhunter: number; direct: number }>,
+          clientCompanies: new Set<string>(),
+          clientIndustriesMap: new Map<string, number>(),
+          clientScalesMap: new Map<string, number>(),
+          cityMap: new Map<string, number>(),
+          headhunterJobsCount: 0,
+          directJobsCount: 0
         })
       }
 
       const node = resultNodes.get(nodeKey)
 
-      if (cleanBrand && cleanBrand !== nodeKey && (!node.brandName || node.brandName === nodeKey)) {
-        node.brandName = cleanBrand
+      // 准确维护职位所在城市分布
+      const jobCity = job.city || (job.location ? job.location.split(/[\s·-]/)[0] : '')
+      if (jobCity && typeof jobCity === 'string' && jobCity.trim() && jobCity !== '未知') {
+        const c = jobCity.trim()
+        node.cityMap.set(c, (node.cityMap.get(c) || 0) + 1)
       }
 
-      // 添加平台来源
+      // 准确维护各平台在招统计
       if (job.platform) {
         node.platformSources.add(job.platform)
+        if (!node.platformStats[job.platform]) {
+          node.platformStats[job.platform] = { total: 0, headhunter: 0, direct: 0 }
+        }
+        node.platformStats[job.platform].total++
+        if (job.isHeadhunter) {
+          node.platformStats[job.platform].headhunter++
+        } else {
+          node.platformStats[job.platform].direct++
+        }
+      }
+
+      // 根据数据源里的实际数据标记猎头/代招状态并收集委托客户及客户画像
+      if (job.isHeadhunter) {
+        node.isAgency = true
+        node.industry = '人力资源服务'
+        node.headhunterJobsCount = (node.headhunterJobsCount || 0) + 1
+        if (job.clientCompanyName && typeof job.clientCompanyName === 'string' && job.clientCompanyName.trim()) {
+          node.clientCompanies.add(job.clientCompanyName.trim())
+        }
+        if (job.clientIndustry && typeof job.clientIndustry === 'string' && job.clientIndustry.trim()) {
+          const ind = job.clientIndustry.trim()
+          node.clientIndustriesMap.set(ind, (node.clientIndustriesMap.get(ind) || 0) + 1)
+        }
+        if (job.clientScale && typeof job.clientScale === 'string' && job.clientScale.trim()) {
+          const sc = job.clientScale.trim()
+          node.clientScalesMap.set(sc, (node.clientScalesMap.get(sc) || 0) + 1)
+        }
+      } else {
+        node.directJobsCount = (node.directJobsCount || 0) + 1
+      }
+
+      // 对于猎头/代招公司，仅显示猎头公司自身名称，不附加客户简称或副品牌名，锁定为人力资源服务
+      if (!node.isAgency) {
+        if (cleanBrand && cleanBrand !== nodeKey && (!node.brandName || node.brandName === nodeKey)) {
+          node.brandName = cleanBrand
+        }
+      } else {
+        node.brandName = ''
+        node.industry = '人力资源服务'
       }
 
       // 处理 tags 与结构化技能、福利
@@ -235,7 +301,7 @@ export default defineEventHandler(async (event) => {
       const { tags, ...jobWithoutRawData } = job as any;
       let companyWithoutRawData = null;
       if (node) {
-        const { rawData: companyRaw, rawData2: companyRaw2, rawData3: companyRaw3, jobs: _jobs, platformSources: _platformSources, ...restCompany } = node as any;
+        const { _recordIds, rawData: companyRaw, rawData2: companyRaw2, rawData3: companyRaw3, jobs: _jobs, platformSources: _platformSources, ...restCompany } = node as any;
         companyWithoutRawData = restCompany;
       }
 
@@ -250,10 +316,33 @@ export default defineEventHandler(async (event) => {
     }
 
     // 4. 将 Map 转为 Array，按职位数量倒序排列，并把 Set 转成 Array
-    let finalArray = Array.from(resultNodes.values()).map(c => ({
-      ...c,
-      platformSources: Array.from(c.platformSources)
-    }))
+    let finalArray = Array.from(resultNodes.values()).map(c => {
+      const sortedCitiesWithCount = Array.from((c.cityMap as Map<string, number>).entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([city, count]) => ({ city, count }))
+      const cities = sortedCitiesWithCount.map(item => item.city)
+
+      const sortedClientIndustries = Array.from((c.clientIndustriesMap as Map<string, number> || new Map()).entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([industry, count]) => ({ industry, count }))
+
+      const sortedClientScales = Array.from((c.clientScalesMap as Map<string, number> || new Map()).entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([scale, count]) => ({ scale, count }))
+
+      const { cityMap, clientIndustriesMap, clientScalesMap, ...rest } = c
+
+      return {
+        ...rest,
+        cities,
+        citiesWithCount: sortedCitiesWithCount,
+        platformSources: Array.from(c.platformSources),
+        clientCompanies: Array.from(c.clientCompanies || []),
+        clientIndustriesWithCount: sortedClientIndustries,
+        clientScalesWithCount: sortedClientScales,
+        platformStats: c.platformStats || {}
+      }
+    })
 
     // Sort by jobs count descending
     finalArray.sort((a, b) => b.jobs.length - a.jobs.length)
@@ -265,6 +354,7 @@ export default defineEventHandler(async (event) => {
     const searchStr = (queryParams.query as string || '').toLowerCase()
     const agencyFilter = (queryParams.agencyFilter as string) || 'direct' // 'direct', 'agency', 'all'
     const platformFilter = (queryParams.platformFilter as string) || 'all'
+    const cityFilter = (queryParams.city as string) || (queryParams.cityFilter as string) || 'all'
 
     if (agencyFilter === 'direct') {
       finalArray = finalArray.filter(c => !c.isAgency)
@@ -276,15 +366,22 @@ export default defineEventHandler(async (event) => {
       finalArray = finalArray.filter(c => c.platformSources.some((p: string) => p.includes(platformFilter)))
     }
 
+    if (cityFilter !== 'all') {
+      finalArray = finalArray.filter(c => c.cities && c.cities.includes(cityFilter))
+    }
+
     if (searchStr) {
       finalArray = finalArray.filter(c =>
         (c.companyName && c.companyName.toLowerCase().includes(searchStr)) ||
         (c.companyFullName && c.companyFullName.toLowerCase().includes(searchStr)) ||
         (c.brandName && c.brandName.toLowerCase().includes(searchStr)) ||
+        (c.cities && c.cities.some((ct: string) => ct.toLowerCase().includes(searchStr))) ||
+        (c.clientCompanies && c.clientCompanies.some((cli: string) => cli.toLowerCase().includes(searchStr))) ||
         c.jobs.some((j: any) =>
           (j.companyName && j.companyName.toLowerCase().includes(searchStr)) ||
           (j.companyFullName && j.companyFullName.toLowerCase().includes(searchStr)) ||
-          (j.clientCompanyName && j.clientCompanyName.toLowerCase().includes(searchStr))
+          (j.clientCompanyName && j.clientCompanyName.toLowerCase().includes(searchStr)) ||
+          (j.city && j.city.toLowerCase().includes(searchStr))
         )
       )
     }
@@ -292,6 +389,48 @@ export default defineEventHandler(async (event) => {
     const total = finalArray.length
     const startIndex = (page - 1) * pageSize
     const paginatedArray = finalArray.slice(startIndex, startIndex + pageSize)
+
+    // 针对当前分页返回的企业，按需关联加载 rawData / rawData2 / rawData3（仅 20 家公司，极轻量）
+    const pagedCompanyRecordIds: string[] = []
+    for (const company of paginatedArray) {
+      if (Array.isArray(company._recordIds)) {
+        pagedCompanyRecordIds.push(...company._recordIds)
+      }
+    }
+
+    if (pagedCompanyRecordIds.length > 0) {
+      const rawDataRecords = await prisma.company.findMany({
+        where: {
+          id: { in: pagedCompanyRecordIds }
+        },
+        select: {
+          id: true,
+          rawData: true,
+          rawData2: true,
+          rawData3: true
+        }
+      })
+      const rawMap = new Map(rawDataRecords.map(r => [r.id, r]))
+      for (const company of paginatedArray) {
+        if (Array.isArray(company._recordIds)) {
+          for (const recId of company._recordIds) {
+            const rawRec = rawMap.get(recId)
+            if (rawRec) {
+              if (!company.rawData && rawRec.rawData) {
+                try { company.rawData = JSON.parse(rawRec.rawData) } catch {}
+              }
+              if (!company.rawData2 && rawRec.rawData2) {
+                try { company.rawData2 = JSON.parse(rawRec.rawData2) } catch {}
+              }
+              if (!company.rawData3 && rawRec.rawData3) {
+                try { company.rawData3 = JSON.parse(rawRec.rawData3) } catch {}
+              }
+            }
+          }
+        }
+        delete company._recordIds
+      }
+    }
 
     // 针对当前分页返回的企业下的职位，按需关联 job_detail_payloads 补充 jobDesc 和 jobUrl
     const pagedJobRecordIds: string[] = []

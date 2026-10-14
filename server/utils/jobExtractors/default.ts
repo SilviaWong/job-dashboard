@@ -1,5 +1,5 @@
 import type { JobProcessor } from './types'
-import { cleanCompanyName, resolveCompanyFullName, isCorporateName } from '../companyProcessors/types'
+import { cleanCompanyName, resolveCompanyFullName, isCorporateName, safeUpdateCompany, findExistingCompanyOnConflict } from '../companyProcessors/types'
 import { computeDescHash } from '../descHash'
 import { resolveJobHrActive } from '../hrAnalytics'
 import { extractStructuredAndPayload, syncJobDetailPayload } from '../jobDualWriter'
@@ -155,10 +155,7 @@ export const processDefaultJob: JobProcessor = async (job, platform, prisma) => 
     // 第二步：执行入库操作
     if (existingCompany) {
       // 场景 A：公司已存在，直接更新数据
-      await prisma.company.update({
-        where: { id: existingCompany.id },
-        data: companyUpdateData
-      })
+      await safeUpdateCompany(prisma, existingCompany.id, companyUpdateData)
     } else {
       // 场景 B：公司不存在，尝试新建
       try {
@@ -174,14 +171,15 @@ export const processDefaultJob: JobProcessor = async (job, platform, prisma) => 
       } catch (err: any) {
         // 异常处理：捕获高并发下的唯一键冲突 (P2002)
         if (err.code === 'P2002') {
-          const newlyInserted = await prisma.company.findFirst({
-            where: { companyName: targetCompanyName, sourcePlatform: platform }
-          })
+          const newlyInserted = await findExistingCompanyOnConflict(
+            prisma,
+            platform,
+            targetCompanyName,
+            companyId ? String(companyId) : null,
+            finalFullName || null
+          )
           if (newlyInserted) {
-            await prisma.company.update({
-              where: { id: newlyInserted.id },
-              data: companyUpdateData
-            })
+            await safeUpdateCompany(prisma, newlyInserted.id, companyUpdateData)
           }
         } else {
           throw err

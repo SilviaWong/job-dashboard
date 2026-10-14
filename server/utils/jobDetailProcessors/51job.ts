@@ -115,12 +115,19 @@ export async function process51JobDetail(detail: any, rawPlatform: string, prism
   const encryCompanyId = detail.encryCompanyId || pcInfo.encryCompanyId || detail.encCoId || ''
   const numericCompanyId = detail['公司ID'] || detail.companyId || detailJobInfo.coId || coInfo.coid || ''
 
-  // 4.1 同步更新 Job 表中的公司全称 companyFullName 以及 companyId
+  // 4.1 同步更新 Job 表中的公司全称 companyFullName、companyId 以及平台时间
+  const publishTime = detail['发布时间'] || detailJobInfo.issueDate || ''
+  const updateTime = detail['页面更新时间'] || detailJobInfo.updateDateTime || publishTime || ''
+  const detailExperience = detail['工作经验'] || detailJobInfo.workYearString || ''
+
   const jobUpdateData: any = {
     updatedAt: updatedAt
   }
   if (companyFullName) jobUpdateData.companyFullName = companyFullName
   if (encryCompanyId) jobUpdateData.companyId = String(encryCompanyId)
+  if (publishTime) jobUpdateData.platformPublishTime = String(publishTime).trim()
+  if (updateTime) jobUpdateData.platformUpdateTime = String(updateTime).trim()
+  if (detailExperience) jobUpdateData.experience = String(detailExperience).trim()
 
   await prisma.job.updateMany({
     where: { jobId: String(jobId), platform: standardizedPlatform },
@@ -160,13 +167,11 @@ export async function process51JobDetail(detail: any, rawPlatform: string, prism
           where: { jobRecordId: targetJob.id },
           update: {
             jobDesc: cleanDesc,
-            rawData2: stringifiedData,
             ...(jobUrl ? { jobUrl } : {})
           },
           create: {
             jobRecordId: targetJob.id,
             jobDesc: cleanDesc,
-            rawData2: stringifiedData,
             jobUrl: jobUrl || null
           }
         })

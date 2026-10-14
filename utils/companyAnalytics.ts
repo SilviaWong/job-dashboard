@@ -38,10 +38,28 @@ export function parseSalary(salaryStr?: string): SalaryRange {
   return { minK, maxK }
 }
 
+export interface PlatformStatItem {
+  platform: string
+  total: number
+  headhunter: number
+  direct: number
+  ratio: number // 平台占总职位百分比
+}
+
+export interface ClientStatItem {
+  name: string
+  count: number
+}
+
 export interface CompanyAnalysis {
   companyName: string
   isAgency: boolean
   platformSources: string[]
+  platformDist: PlatformStatItem[]
+  clientDist: ClientStatItem[]
+  clientIndustryDist: { name: string; value: number }[]
+  clientScaleDist: { name: string; value: number }[]
+  selectedPlatform: string
   summary: {
     totalJobs: number
     activeJobs: number
@@ -52,6 +70,9 @@ export interface CompanyAnalysis {
     avgSalaryMin: number | null
     avgSalaryMax: number | null
     avgSalaryMid: number | null
+    headhunterJobs: number
+    directJobs: number
+    headhunterRatio: number
   }
   monthlyTrend: { month: string; count: number }[]
   salaryDist: { range: string; count: number }[]
@@ -61,8 +82,39 @@ export interface CompanyAnalysis {
   cityDist: { name: string; value: number }[]
 }
 
-export function analyzeCompany(company: any): CompanyAnalysis {
-  const jobs = Array.isArray(company?.jobs) ? company.jobs : []
+export function analyzeCompany(company: any, targetPlatform: string = 'all'): CompanyAnalysis {
+  const allJobs = Array.isArray(company?.jobs) ? company.jobs : []
+  
+  // 1. 全渠道平台构成统计 (始终基于公司全量职位)
+  const platformMap = new Map<string, { total: number; headhunter: number; direct: number }>()
+  for (const job of allJobs) {
+    const plat = job.platform || '未知平台'
+    if (!platformMap.has(plat)) {
+      platformMap.set(plat, { total: 0, headhunter: 0, direct: 0 })
+    }
+    const stat = platformMap.get(plat)!
+    stat.total++
+    const isHh = !!(job.isHeadhunter || job.normalizedData?.isHeadhunter)
+    if (isHh) stat.headhunter++
+    else stat.direct++
+  }
+
+  const allJobsCount = Math.max(allJobs.length, 1)
+  const platformDist: PlatformStatItem[] = Array.from(platformMap.entries())
+    .map(([platform, item]) => ({
+      platform,
+      total: item.total,
+      headhunter: item.headhunter,
+      direct: item.direct,
+      ratio: Math.round((item.total / allJobsCount) * 100)
+    }))
+    .sort((a, b) => b.total - a.total)
+
+  // 2. 按照所选平台筛选分析数据集
+  const jobs = (targetPlatform && targetPlatform !== 'all')
+    ? allJobs.filter((j: any) => j.platform === targetPlatform)
+    : allJobs
+
   const now = Date.now()
   const ms7d = 7 * 24 * 60 * 60 * 1000
   const ms30d = 30 * 24 * 60 * 60 * 1000
@@ -72,12 +124,17 @@ export function analyzeCompany(company: any): CompanyAnalysis {
   let recent7d = 0
   let recent30d = 0
   let stale60d = 0
+  let headhunterJobs = 0
+  let directJobs = 0
 
   const monthlyMap = new Map<string, number>()
   const titleMap = new Map<string, number>()
   const tagMap = new Map<string, number>()
   const expMap = new Map<string, number>()
   const cityMap = new Map<string, number>()
+  const clientMap = new Map<string, number>()
+  const clientIndustryMap = new Map<string, number>()
+  const clientScaleMap = new Map<string, number>()
 
   const validSalaries: { minK: number; maxK: number }[] = []
 
@@ -91,6 +148,26 @@ export function analyzeCompany(company: any): CompanyAnalysis {
   ]
 
   for (const job of jobs) {
+    // 猎头/代招标记
+    const isHh = !!(job.isHeadhunter || job.normalizedData?.isHeadhunter)
+    if (isHh) {
+      headhunterJobs++
+      const client = (job.clientCompanyName || job.normalizedData?.clientCompanyName || '').trim()
+      if (client) {
+        clientMap.set(client, (clientMap.get(client) || 0) + 1)
+      }
+      const clientInd = (job.clientIndustry || job.normalizedData?.clientIndustry || '').trim()
+      if (clientInd) {
+        clientIndustryMap.set(clientInd, (clientIndustryMap.get(clientInd) || 0) + 1)
+      }
+      const clientSc = (job.clientScale || job.normalizedData?.clientScale || '').trim()
+      if (clientSc) {
+        clientScaleMap.set(clientSc, (clientScaleMap.get(clientSc) || 0) + 1)
+      }
+    } else {
+      directJobs++
+    }
+
     // 活跃状态
     const isClosed = job.status === 'expired' || job.status === 'closed' || job.isHidden
     if (!isClosed) activeJobs++
@@ -154,6 +231,7 @@ export function analyzeCompany(company: any): CompanyAnalysis {
 
   const totalJobs = jobs.length
   const heatScore = totalJobs > 0 ? Math.min(100, Math.round((recent30d / Math.max(totalJobs, 1)) * 100)) : 0
+  const headhunterRatio = totalJobs > 0 ? Math.round((headhunterJobs / totalJobs) * 100) : 0
 
   const avgSalaryMin = validSalaries.length > 0 ? Math.round((validSalaries.reduce((acc, s) => acc + s.minK, 0) / validSalaries.length) * 10) / 10 : null
   const avgSalaryMax = validSalaries.length > 0 ? Math.round((validSalaries.reduce((acc, s) => acc + s.maxK, 0) / validSalaries.length) * 10) / 10 : null
@@ -181,10 +259,32 @@ export function analyzeCompany(company: any): CompanyAnalysis {
     .map(([name, value]) => ({ name, value }))
     .sort((a, b) => b.value - a.value)
 
+  const clientDist: ClientStatItem[] = Array.from(clientMap.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10)
+
+  const clientIndustryDist = Array.from(clientIndustryMap.entries())
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 10)
+
+  const clientScaleDist = Array.from(clientScaleMap.entries())
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+
+  // 判定是否是代招/猎头机构（数据源中有代招岗位或企业自身标记）
+  const isAgency = !!(company?.isAgency || headhunterJobs > 0 || (allJobs.some((j: any) => j.isHeadhunter || j.normalizedData?.isHeadhunter)))
+
   return {
-    companyName: company?.companyName || '未知企业',
-    isAgency: !!company?.isAgency,
+    companyName: company?.companyFullName || company?.companyName || '未知企业',
+    isAgency,
     platformSources: company?.platformSources || [],
+    platformDist,
+    clientDist,
+    clientIndustryDist,
+    clientScaleDist,
+    selectedPlatform: targetPlatform,
     summary: {
       totalJobs,
       activeJobs,
@@ -194,7 +294,10 @@ export function analyzeCompany(company: any): CompanyAnalysis {
       heatScore,
       avgSalaryMin,
       avgSalaryMax,
-      avgSalaryMid
+      avgSalaryMid,
+      headhunterJobs,
+      directJobs,
+      headhunterRatio
     },
     monthlyTrend,
     salaryDist: salaryBuckets.map(b => ({ range: b.label, count: b.count })),

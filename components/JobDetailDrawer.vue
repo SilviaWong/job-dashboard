@@ -69,12 +69,24 @@
                   {{ job.clientCompanyName || job.normalizedData?.clientCompanyName }}
                 </span>
               </div>
-              <div class="stat-box"><span class="stat-label">所属行业</span><span class="stat-value">{{ job.normalizedData?.companyIndustry || '-' }}</span></div>
-              <div class="stat-box"><span class="stat-label">公司阶段</span><span class="stat-value">{{ job.normalizedData?.companyStage || '-' }}</span></div>
-              <div class="stat-box"><span class="stat-label">人员规模</span><span class="stat-value">{{ job.normalizedData?.companyScale || '-' }}</span></div>
+              <div class="stat-box" v-if="(job.isHeadhunter || job.normalizedData?.isHeadhunter) && (job.clientIndustry || job.normalizedData?.clientIndustry)">
+                <span class="stat-label">目标客户行业</span>
+                <span class="stat-value" style="color: #1976d2; font-weight: 600;">{{ job.clientIndustry || job.normalizedData?.clientIndustry }}</span>
+              </div>
+              <div class="stat-box" v-if="(job.isHeadhunter || job.normalizedData?.isHeadhunter) && (job.clientScale || job.normalizedData?.clientScale)">
+                <span class="stat-label">目标客户规模</span>
+                <span class="stat-value" style="color: #2e7d32; font-weight: 600;">{{ job.clientScale || job.normalizedData?.clientScale }}</span>
+              </div>
+              <div class="stat-box" v-if="(job.isHeadhunter || job.normalizedData?.isHeadhunter) && (job.clientStage || job.normalizedData?.clientStage)">
+                <span class="stat-label">目标客户阶段</span>
+                <span class="stat-value" style="color: #ed6c02; font-weight: 600;">{{ job.clientStage || job.normalizedData?.clientStage }}</span>
+              </div>
+              <div class="stat-box"><span class="stat-label">{{ (job.isHeadhunter || job.normalizedData?.isHeadhunter) ? '机构行业' : '所属行业' }}</span><span class="stat-value">{{ (job.isHeadhunter || job.normalizedData?.isHeadhunter) ? '人力资源服务' : (job.normalizedData?.companyIndustry || '-') }}</span></div>
+              <div class="stat-box" v-if="!(job.isHeadhunter || job.normalizedData?.isHeadhunter)"><span class="stat-label">公司阶段</span><span class="stat-value">{{ job.normalizedData?.companyStage || '-' }}</span></div>
+              <div class="stat-box" v-if="!(job.isHeadhunter || job.normalizedData?.isHeadhunter)"><span class="stat-label">人员规模</span><span class="stat-value">{{ job.normalizedData?.companyScale || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">招聘人员</span><span class="stat-value">{{ job.normalizedData?.hrName || '-' }}</span></div>
               <div class="stat-box"><span class="stat-label">招聘职位</span><span class="stat-value">{{ job.normalizedData?.hrPosition || '-' }}</span></div>
-              <div class="stat-box" v-if="job.normalizedData?.hrCompanyName"><span class="stat-label">所属公司</span><span class="stat-value" :title="job.normalizedData.hrCompanyName">{{ job.normalizedData.hrCompanyName }}</span></div>
+              <div class="stat-box" v-if="job.normalizedData?.hrCompanyName || job.companyFullName || job.companyName"><span class="stat-label">{{ (job.isHeadhunter || job.normalizedData?.isHeadhunter) ? '猎头机构' : '所属公司' }}</span><span class="stat-value" :title="job.normalizedData?.hrCompanyName || job.companyFullName || job.companyName">{{ job.normalizedData?.hrCompanyName || job.companyFullName || job.companyName }}</span></div>
             </div>
 
             <!-- 时效与生命周期画像 -->

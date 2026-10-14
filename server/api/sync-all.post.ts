@@ -2,9 +2,10 @@ import { getPrisma } from '#prisma'
 import { computeDescHash } from '../utils/descHash'
 import { resolveJobHrActive } from '../utils/hrAnalytics'
 import { extractStructuredAndPayload, syncJobDetailPayload } from '../utils/jobDualWriter'
-import { extractCompanyMetadata } from '../utils/companyProcessors/types'
+import { extractCompanyMetadata, safeUpdateCompany, findExistingCompanyOnConflict } from '../utils/companyProcessors/types'
 
 export default defineEventHandler(async (event) => {
+  const prisma = getPrisma(event)
   const body = await readBody(event)
 
   if (!body || typeof body !== 'object') {
@@ -59,28 +60,26 @@ export default defineEventHandler(async (event) => {
     syncResults.blacklisted = blacklisted_companies.length
   }
 
-  // 2. Sync Question Bank
+  // 2. Sync Standard Questions
   if (Array.isArray(interview_questions)) {
     for (const q of interview_questions) {
       if (q.id && q.title) {
-        await prisma.questionBank.upsert({
+        await prisma.standardQuestion.upsert({
           where: { id: q.id },
           update: {
             title: q.title,
             tags: typeof q.tags === 'string' ? q.tags : (q.tags ? JSON.stringify(q.tags) : null),
-            answer: q.answer || null,
-            serialNo: q.serialNo ? parseInt(q.serialNo, 10) : null,
-            themeCategory: q.themeCategory || null,
-            subCategory: q.subCategory || null
+            answerKey: q.answer || q.answerKey || null,
+            domain: q.domain || q.themeCategory || null,
+            categoryTags: q.categoryTags || q.subCategory || null
           },
           create: {
             id: q.id,
             title: q.title,
             tags: typeof q.tags === 'string' ? q.tags : (q.tags ? JSON.stringify(q.tags) : null),
-            answer: q.answer || null,
-            serialNo: q.serialNo ? parseInt(q.serialNo, 10) : null,
-            themeCategory: q.themeCategory || null,
-            subCategory: q.subCategory || null
+            answerKey: q.answer || q.answerKey || null,
+            domain: q.domain || q.themeCategory || null,
+            categoryTags: q.categoryTags || q.subCategory || null
           }
         }).catch(() => { })
       }
@@ -129,8 +128,8 @@ export default defineEventHandler(async (event) => {
   // 51job
   if (Array.isArray(job51_companies_scraped)) {
     for (const comp of job51_companies_scraped) {
-      const cName = comp.coinfo.coname || comp.llicense.businessName || '';
-      const companyId = comp.coinfo.encryCompanyId || '';
+      const cName = comp.coinfo?.coname || comp.license?.businessName || comp.llicense?.businessName || '';
+      const companyId = comp.coinfo?.encryCompanyId || comp.companyId || '';
       if (companyId) {
         allCompanies.push({
           cName: String(cName),
@@ -182,42 +181,42 @@ export default defineEventHandler(async (event) => {
     if (cName && typeof cName === 'string' && cName.trim() !== '') {
       const meta = extractCompanyMetadata(rawData);
       try {
-        await prisma.company.upsert({
-          where: {
-            companyName_sourcePlatform_companyId: {
-              companyName: cName.trim(),
-              sourcePlatform: platform,
-              companyId: companyId ? String(companyId) : null
-            }
-          },
-          update: {
-            rawData: JSON.stringify(rawData),
-            companyId: companyId ? String(companyId) : null,
-            industry: meta.industry,
-            scale: meta.scale,
-            stage: meta.stage,
-            companyType: meta.companyType,
-            creditCode: meta.creditCode,
-            logo: meta.logo,
-            welfareList: meta.welfareList
-          },
-          create: {
+        const targetId = companyId ? String(companyId) : null;
+        const existing = await findExistingCompanyOnConflict(prisma, cName.trim(), platform, targetId);
+        if (existing) {
+          await safeUpdateCompany(prisma, existing.id, {
             companyName: cName.trim(),
             sourcePlatform: platform,
-            companyId: companyId ? String(companyId) : null,
+            companyId: targetId || existing.companyId,
             rawData: JSON.stringify(rawData),
-            industry: meta.industry,
-            scale: meta.scale,
-            stage: meta.stage,
-            companyType: meta.companyType,
-            creditCode: meta.creditCode,
-            logo: meta.logo,
-            welfareList: meta.welfareList
-          }
-        })
+            industry: meta.industry || existing.industry,
+            scale: meta.scale || existing.scale,
+            stage: meta.stage || existing.stage,
+            companyType: meta.companyType || existing.companyType,
+            creditCode: meta.creditCode || existing.creditCode,
+            logo: meta.logo || existing.logo,
+            welfareList: meta.welfareList || existing.welfareList
+          });
+        } else {
+          await prisma.company.create({
+            data: {
+              companyName: cName.trim(),
+              sourcePlatform: platform,
+              companyId: targetId,
+              rawData: JSON.stringify(rawData),
+              industry: meta.industry,
+              scale: meta.scale,
+              stage: meta.stage,
+              companyType: meta.companyType,
+              creditCode: meta.creditCode,
+              logo: meta.logo,
+              welfareList: meta.welfareList
+            }
+          });
+        }
         syncResults.companies++
       } catch (err) {
-        console.error('Failed to upsert company:', cName.trim(), err)
+        console.error('Failed to sync company:', cName.trim(), err)
       }
     }
   }

@@ -184,12 +184,15 @@ export default defineEventHandler(async (event) => {
       })
     }
     
-    // AI Diagnosis filter
+    // AI Diagnosis filter & AI Score Sorting
     const aiDiagnosisFilter = query.aiDiagnosisFilter as string || 'all'
+    const isAiScoreSort = sortBy === 'aiScoreDesc' || sortBy === 'aiScoreAsc'
     let aiDiagnosedJobIdsSet = new Set<string>()
-    if (aiDiagnosisFilter !== 'all') {
-      const aiResults = await prisma.aiJobResult.findMany({ select: { jobId: true } })
+    let aiScoreMap = new Map<string, number>()
+    if (aiDiagnosisFilter !== 'all' || isAiScoreSort) {
+      const aiResults = await prisma.aiJobResult.findMany({ select: { jobId: true, score: true } })
       aiDiagnosedJobIdsSet = new Set(aiResults.map(r => r.jobId))
+      aiScoreMap = new Map(aiResults.map(r => [r.jobId, r.score ?? -1]))
     }
     
     // Missing Boss Detail Filter (使用 Set 在内存判断，避免 notIn 生成超长 SQL 变量)
@@ -257,9 +260,66 @@ export default defineEventHandler(async (event) => {
     } else {
       orderBy = { updatedAt: 'desc' }
     }
+
+    // 定义轻量级 Job 查询字段，严禁把超大 rawData/rawData2 读入内存
+    const jobListSelect = {
+      id: true,
+      jobId: true,
+      title: true,
+      companyName: true,
+      companyFullName: true,
+      companyId: true,
+      salary: true,
+      location: true,
+      education: true,
+      platform: true,
+      status: true,
+      dataSource: true,
+      isFavorited: true,
+      isHidden: true,
+      tags: true,
+      createdAt: true,
+      updatedAt: true,
+      firstSeen: true,
+      lastSeen: true,
+      descHash: true,
+      platformPublishTime: true,
+      platformUpdateTime: true,
+      hrActiveStatus: true,
+      hrActiveLevel: true,
+      hrName: true,
+      hrPosition: true,
+      isHeadhunter: true,
+      clientCompanyName: true,
+      clientIndustry: true,
+      clientScale: true,
+      clientStage: true,
+      salaryMin: true,
+      salaryMax: true,
+      salaryAvg: true,
+      salaryMonths: true,
+      province: true,
+      city: true,
+      cityCode: true,
+      area: true,
+      businessDistrict: true,
+      address: true,
+      experience: true,
+      expMinYears: true,
+      expMaxYears: true,
+      skills: true,
+      welfareList: true,
+      applyStatus: true,
+      detailPayload: {
+        select: {
+          jobDesc: true,
+          jobUrl: true
+        }
+      }
+    }
     
-    // 仅在勾选了依赖内存集合的条件时采用轻量级两阶段查询；常规查询（含薪资范围）100% 走纯数据库原生分页
-    if (aiDiagnosisFilter !== 'all' || filterMissingBossDetail) {
+    // 仅在勾选了依赖内存集合或 AI 评分排序的条件时采用轻量级两阶段查询；常规查询 100% 走纯数据库原生分页
+    if (aiDiagnosisFilter !== 'all' || filterMissingBossDetail || isAiScoreSort) {
       const allJobStubs = await prisma.job.findMany({
         where: whereClause,
         select: {
@@ -271,7 +331,7 @@ export default defineEventHandler(async (event) => {
         orderBy: orderBy
       })
       
-      const filteredStubs = allJobStubs.filter(job => {
+      let filteredStubs = allJobStubs.filter(job => {
         // Missing Boss Detail Filter
         if (filterMissingBossDetail) {
           if (job.platform === 'Boss直聘' && missingBossDetailSet.has(job.jobId)) {
@@ -289,24 +349,25 @@ export default defineEventHandler(async (event) => {
         
         return true
       })
+
+      // AI 评分排序支持
+      if (sortBy === 'aiScoreDesc') {
+        filteredStubs.sort((a, b) => (aiScoreMap.get(b.jobId) ?? -1) - (aiScoreMap.get(a.jobId) ?? -1))
+      } else if (sortBy === 'aiScoreAsc') {
+        filteredStubs.sort((a, b) => (aiScoreMap.get(a.jobId) ?? 999) - (aiScoreMap.get(b.jobId) ?? 999))
+      }
       
       totalJobs = filteredStubs.length
       const pagedStubs = filteredStubs.slice((page - 1) * pageSize, page * pageSize)
       const pagedIds = pagedStubs.map(s => s.id)
 
       if (pagedIds.length > 0) {
-        jobs = await prisma.job.findMany({
+        const rawFetchedJobs = await prisma.job.findMany({
           where: { id: { in: pagedIds } },
-          orderBy: orderBy,
-          include: {
-            detailPayload: {
-              select: {
-                jobDesc: true,
-                jobUrl: true
-              }
-            }
-          }
+          select: jobListSelect
         })
+        const idOrder = new Map(pagedIds.map((id, idx) => [id, idx]))
+        jobs = rawFetchedJobs.sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0))
       } else {
         jobs = []
       }
@@ -320,21 +381,14 @@ export default defineEventHandler(async (event) => {
         orderBy: orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: {
-          detailPayload: {
-            select: {
-              jobDesc: true,
-              jobUrl: true
-            }
-          }
-        }
+        select: jobListSelect
       })
     }
 
     // Extract jobIds to query related decoupled data
     const jobIds = jobs.map(j => j.jobId)
 
-    // Batch query AI Results
+    // Batch query AI Results (仅针对当前页 20 条职位)
     const aiResults = await prisma.aiJobResult.findMany({
       where: { jobId: { in: jobIds } }
     })
@@ -346,11 +400,53 @@ export default defineEventHandler(async (event) => {
       .map(j => ({ companyName: j.companyName, sourcePlatform: j.platform }));
     const uniqueCompanyQueries = Array.from(new Set(companyQueries.map(q => JSON.stringify(q)))).map(q => JSON.parse(q));
 
-    // Batch query companies
+    // Batch query companies (精简 select，不拉取任何 rawData)
     const companies = uniqueCompanyQueries.length > 0 ? await prisma.company.findMany({
-      where: { OR: uniqueCompanyQueries }
+      where: { OR: uniqueCompanyQueries },
+      select: {
+        companyName: true,
+        companyFullName: true,
+        sourcePlatform: true,
+        companyId: true,
+        industry: true,
+        scale: true,
+        stage: true,
+        companyType: true,
+        creditCode: true,
+        logo: true,
+        isAgency: true
+      }
     }) : [];
     const companyMap = Object.fromEntries(companies.map(c => [`${c.sourcePlatform}_${c.companyName}`, c]));
+
+    // 跨平台同岗位识别：检测当前页职位在其他招聘平台是否有同名直招岗位
+    const pageJobTitles = Array.from(new Set(jobs.map(j => j.title).filter(Boolean)))
+    let crossPlatformMap = new Map<string, string[]>()
+    if (pageJobTitles.length > 0) {
+      const candidates = await prisma.job.findMany({
+        where: {
+          title: { in: pageJobTitles },
+          status: { not: 'deleted' }
+        },
+        select: {
+          title: true,
+          companyName: true,
+          companyFullName: true,
+          city: true,
+          platform: true
+        }
+      })
+      for (const cand of candidates) {
+        const coKey = (cand.companyFullName || cand.companyName || '').trim()
+        const tKey = (cand.title || '').trim().toLowerCase()
+        const cKey = (cand.city || '').trim()
+        if (!coKey || !tKey) continue
+        const comboKey = `${coKey}__${tKey}__${cKey}`
+        if (!crossPlatformMap.has(comboKey)) crossPlatformMap.set(comboKey, [])
+        const list = crossPlatformMap.get(comboKey)!
+        if (!list.includes(cand.platform)) list.push(cand.platform)
+      }
+    }
 
     // Helper to filter out corrupted JSON/control-character fragments defensively
     const cleanField = (val: any): string => {
@@ -388,78 +484,67 @@ export default defineEventHandler(async (event) => {
         } catch (e) { }
       }
 
-      const companyInfo = companyMap[`${job.platform}_${job.companyName}`];
-      let companyWithoutRawData = null;
-      if (companyInfo) {
-        const { rawData: companyRaw, rawData2: companyRaw2, ...restCompany } = companyInfo;
-        companyWithoutRawData = restCompany;
+      const companyInfo = companyMap[`${job.platform}_${job.companyName}`] || null;
+      const isEffectiveAgency = !!(job.isHeadhunter || companyInfo?.isAgency);
+      let compIndustry = isEffectiveAgency ? '人力资源服务' : (companyInfo?.industry || '');
+
+      const normalizedData = {
+        jobUrl: job.detailPayload?.jobUrl || '',
+        publishDate: cleanField(job.platformPublishTime),
+        updateDate: cleanField(job.platformUpdateTime),
+        spiderDate: '',
+        companyIndustry: compIndustry,
+        companyStage: isEffectiveAgency ? '' : (companyInfo?.stage || ''),
+        companyScale: isEffectiveAgency ? '' : (companyInfo?.scale || ''),
+        brandName: job.companyName,
+        companyFullName: job.companyFullName || job.companyName,
+        companyId: job.companyId || '',
+        hrName: cleanField(job.hrName),
+        hrPosition: cleanField(job.hrPosition),
+        hrCompanyName: job.companyName,
+        welfareList: parsedWelfare,
+        skills: parsedSkills,
+        jobId: job.jobId,
+        jobName: job.title,
+        salaryRange: job.salary,
+        jobDesc: job.detailPayload?.jobDesc || '暂无描述',
+        experience: cleanField(job.experience) || '经验不限',
+        degree: cleanField(job.education) || '学历不限',
+        positionType: '',
+        jobTags: parsedSkills,
+        city: cleanField(job.city) || '上海',
+        cityCode: cleanField(job.cityCode) || '310100',
+        area: cleanField(job.area),
+        businessDistrict: cleanField(job.businessDistrict),
+        address: cleanField(job.address),
+        isHeadhunter: isEffectiveAgency,
+        clientCompanyName: cleanField(job.clientCompanyName),
+        clientIndustry: cleanField(job.clientIndustry),
+        clientScale: cleanField(job.clientScale),
+        clientStage: cleanField(job.clientStage),
+        dataSource: job.dataSource || '',
+        jobStatus: job.status || '',
+        hrActiveStatus: cleanField(job.hrActiveStatus),
+        hrActiveLevel: job.hrActiveLevel || 'unknown'
       }
 
-      let compIndustry = companyInfo?.industry || '';
-      if (!compIndustry || /^\d+$/.test(String(compIndustry).trim())) {
-        let parsedRaw: any = null;
-        try { parsedRaw = JSON.parse(job.rawData || '{}'); } catch (e) {}
-        compIndustry = parsedRaw?.brandIndustry || parsedRaw?.brandComInfo?.industryName || parsedRaw?.['公司行业'] || parsedRaw?.compIndustry || '';
-        if (compIndustry && /^\d+$/.test(String(compIndustry).trim())) compIndustry = '';
-      }
+      // 计算其他平台同时发布的记录
+      const coKey = (job.companyFullName || job.companyName || '').trim()
+      const tKey = (job.title || '').trim().toLowerCase()
+      const cKey = (job.city || '').trim()
+      const comboKey = `${coKey}__${tKey}__${cKey}`
+      const matchedPlatforms = crossPlatformMap.get(comboKey) || []
+      const otherPlatforms = matchedPlatforms.filter(p => p !== job.platform)
 
-      let normalizedData: any = null
-      if (job.city || job.skills || job.detailPayload?.jobDesc) {
-        normalizedData = {
-          jobUrl: job.detailPayload?.jobUrl || '',
-          publishDate: cleanField(job.platformPublishTime),
-          updateDate: cleanField(job.platformUpdateTime),
-          spiderDate: '',
-          companyIndustry: compIndustry,
-          companyStage: companyInfo?.stage || '',
-          companyScale: companyInfo?.scale || '',
-          brandName: job.companyName,
-          companyFullName: job.companyFullName || job.companyName,
-          companyId: job.companyId || '',
-          hrName: cleanField(job.hrName),
-          hrPosition: cleanField(job.hrPosition),
-          hrCompanyName: job.companyName,
-          welfareList: parsedWelfare,
-          skills: parsedSkills,
-          jobId: job.jobId,
-          jobName: job.title,
-          salaryRange: job.salary,
-          jobDesc: job.detailPayload?.jobDesc || '暂无描述',
-          experience: cleanField(job.experience) || cleanField(job.education) || '经验不限',
-          degree: cleanField(job.education) || '学历不限',
-          positionType: '',
-          jobTags: parsedSkills,
-          city: cleanField(job.city) || '上海',
-          cityCode: cleanField(job.cityCode) || '310100',
-          area: cleanField(job.area),
-          businessDistrict: cleanField(job.businessDistrict),
-          address: cleanField(job.address),
-          isHeadhunter: !!job.isHeadhunter,
-          clientCompanyName: cleanField(job.clientCompanyName),
-          dataSource: job.dataSource || '',
-          jobStatus: job.status || '',
-          hrActiveStatus: cleanField(job.hrActiveStatus),
-          hrActiveLevel: job.hrActiveLevel || 'unknown'
-        }
-      } else {
-        let parsedRawData = {}
-        try { parsedRawData = JSON.parse(job.rawData || '{}') } catch (e) { }
-        let parsedRawData2 = {}
-        try { parsedRawData2 = JSON.parse(job.rawData2 || '{}') } catch (e) { }
-        normalizedData = normalizeJobData(job, parsedRawData, parsedRawData2, null, null)
-        if (job.clientCompanyName) {
-          normalizedData.clientCompanyName = job.clientCompanyName
-        }
-      }
-
-      const { rawData, rawData2, tags, detailPayload, ...jobWithoutRawData } = job;
+      const { tags, detailPayload, ...jobWithoutPayload } = job;
 
       return {
-        ...jobWithoutRawData,
+        ...jobWithoutPayload,
         tags: parsedTags,
         normalizedData: normalizedData,
+        otherPlatforms: otherPlatforms,
         aiResult: aiResultMap[job.jobId] || null,
-        company: companyWithoutRawData,
+        company: companyInfo,
         isBlacklisted: blacklistedSet.has(job.companyName) || 
           (job.companyFullName ? blacklistedSet.has(job.companyFullName) : false) || 
           (job.clientCompanyName ? blacklistedSet.has(job.clientCompanyName) : false)

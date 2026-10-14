@@ -107,14 +107,23 @@ export async function processZhilianJobDetail(detail: any, rawPlatform: string, 
   // =========================================================================
   // 第四步：联动更新 Job 职位表中的相关字段
   // =========================================================================
-  // 4.1 同步更新 Job 表中的公司全称 companyFullName
-  if (companyFullName) {
+  // 4.1 同步更新 Job 表中的公司全称 companyFullName 以及平台时间
+  const publishTime = detail['发布时间'] || detailedPosition.positionPublishTime || detailedPosition.publishTime || ''
+  const updateTime = detail['页面更新时间'] || detail['更新时间'] || detailedPosition.publishTime || ''
+  const detailExperience = detail['工作经验'] || detailedPosition.positionWorkingExp || detailedPosition.workingExp || ''
+
+  const jobUpdateData: any = {
+    updatedAt: updatedAt
+  }
+  if (companyFullName) jobUpdateData.companyFullName = companyFullName
+  if (publishTime) jobUpdateData.platformPublishTime = String(publishTime).trim()
+  if (updateTime) jobUpdateData.platformUpdateTime = String(updateTime).trim()
+  if (detailExperience) jobUpdateData.experience = String(detailExperience).trim()
+
+  if (Object.keys(jobUpdateData).length > 1) {
     await prisma.job.updateMany({
       where: { jobId: String(jobId), platform: standardizedPlatform },
-      data: {
-        companyFullName: companyFullName,
-        updatedAt: updatedAt
-      }
+      data: jobUpdateData
     })
   }
 
@@ -152,13 +161,11 @@ export async function processZhilianJobDetail(detail: any, rawPlatform: string, 
           where: { jobRecordId: targetJob.id },
           update: {
             jobDesc: cleanDesc,
-            rawData2: stringifiedData,
             ...(jobUrl ? { jobUrl } : {})
           },
           create: {
             jobRecordId: targetJob.id,
             jobDesc: cleanDesc,
-            rawData2: stringifiedData,
             jobUrl: jobUrl || null
           }
         })

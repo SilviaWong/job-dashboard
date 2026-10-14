@@ -1,4 +1,4 @@
-import { type CompanyProcessor, extractCompanyMetadata } from './types'
+import { type CompanyProcessor, extractCompanyMetadata, safeUpdateCompany, findExistingCompanyOnConflict } from './types'
 
 export const processDefaultCompany: CompanyProcessor = async (company, platform, prisma) => {
   let cName = company.companyName || company['公司名称'] || ''
@@ -34,20 +34,17 @@ export const processDefaultCompany: CompanyProcessor = async (company, platform,
   const validFullName = cFullName || undefined
 
   if (existingCompany) {
-    await prisma.company.update({
-      where: { id: existingCompany.id },
-      data: {
-        rawData2: stringifiedData,
-        companyId: validCompanyId || existingCompany.companyId,
-        companyFullName: validFullName || existingCompany.companyFullName,
-        ...(meta.industry ? { industry: meta.industry } : {}),
-        ...(meta.scale ? { scale: meta.scale } : {}),
-        ...(meta.stage ? { stage: meta.stage } : {}),
-        ...(meta.companyType ? { companyType: meta.companyType } : {}),
-        ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
-        ...(meta.logo ? { logo: meta.logo } : {}),
-        ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
-      }
+    await safeUpdateCompany(prisma, existingCompany.id, {
+      rawData2: stringifiedData,
+      companyId: validCompanyId || existingCompany.companyId,
+      companyFullName: validFullName || existingCompany.companyFullName,
+      ...(meta.industry ? { industry: meta.industry } : {}),
+      ...(meta.scale ? { scale: meta.scale } : {}),
+      ...(meta.stage ? { stage: meta.stage } : {}),
+      ...(meta.companyType ? { companyType: meta.companyType } : {}),
+      ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
+      ...(meta.logo ? { logo: meta.logo } : {}),
+      ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
     })
   } else if (finalCompanyName) {
     try {
@@ -69,24 +66,25 @@ export const processDefaultCompany: CompanyProcessor = async (company, platform,
       })
     } catch (createErr: any) {
       if (createErr.code === 'P2002') {
-        const newlyCreated = await prisma.company.findFirst({
-          where: { companyName: finalCompanyName, sourcePlatform: standardizedPlatform }
-        })
+        const newlyCreated = await findExistingCompanyOnConflict(
+          prisma,
+          standardizedPlatform,
+          finalCompanyName,
+          validCompanyId || null,
+          validFullName || null
+        )
         if (newlyCreated) {
-          await prisma.company.update({
-            where: { id: newlyCreated.id },
-            data: {
-              rawData2: stringifiedData,
-              companyId: validCompanyId || newlyCreated.companyId,
-              companyFullName: validFullName || newlyCreated.companyFullName,
-              ...(meta.industry ? { industry: meta.industry } : {}),
-              ...(meta.scale ? { scale: meta.scale } : {}),
-              ...(meta.stage ? { stage: meta.stage } : {}),
-              ...(meta.companyType ? { companyType: meta.companyType } : {}),
-              ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
-              ...(meta.logo ? { logo: meta.logo } : {}),
-              ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
-            }
+          await safeUpdateCompany(prisma, newlyCreated.id, {
+            rawData2: stringifiedData,
+            companyId: validCompanyId || newlyCreated.companyId,
+            companyFullName: validFullName || newlyCreated.companyFullName,
+            ...(meta.industry ? { industry: meta.industry } : {}),
+            ...(meta.scale ? { scale: meta.scale } : {}),
+            ...(meta.stage ? { stage: meta.stage } : {}),
+            ...(meta.companyType ? { companyType: meta.companyType } : {}),
+            ...(meta.creditCode ? { creditCode: meta.creditCode } : {}),
+            ...(meta.logo ? { logo: meta.logo } : {}),
+            ...(meta.welfareList ? { welfareList: meta.welfareList } : {})
           })
         }
       } else {

@@ -100,14 +100,30 @@ export async function processBossJobDetail(detail: any, rawPlatform: string, pri
   // =========================================================================
   // 第四步：联动更新 Job 职位表中的相关字段
   // =========================================================================
-  // 4.1 同步更新 Job 表中的公司全称 companyFullName
-  if (companyFullName) {
+  // 4.1 同步更新 Job 表中的公司全称 companyFullName（仅限直招，猎头代招保持猎头机构名称）以及平台刷新时间
+  const updateTime = detail['最后刷新时间'] || detail['精确更新时间'] || detail['页面更新时间'] || ''
+  const publishTime = detail['发布时间'] || ''
+  const detailExperience = detail['工作经验'] || ''
+
+  const existingTargetJob = await prisma.job.findFirst({
+    where: { jobId: String(jobId), platform: 'Boss直聘' },
+    select: { id: true, isHeadhunter: true }
+  })
+
+  const jobUpdateData: any = {
+    updatedAt: updatedAt
+  }
+  if (companyFullName && !existingTargetJob?.isHeadhunter) {
+    jobUpdateData.companyFullName = companyFullName
+  }
+  if (updateTime) jobUpdateData.platformUpdateTime = String(updateTime).trim()
+  if (publishTime) jobUpdateData.platformPublishTime = String(publishTime).trim()
+  if (detailExperience) jobUpdateData.experience = String(detailExperience).trim()
+
+  if (Object.keys(jobUpdateData).length > 1) {
     await prisma.job.updateMany({
       where: { jobId: String(jobId), platform: 'Boss直聘' },
-      data: {
-        companyFullName: companyFullName,
-        updatedAt: updatedAt
-      }
+      data: jobUpdateData
     })
   }
 
@@ -134,13 +150,11 @@ export async function processBossJobDetail(detail: any, rawPlatform: string, pri
         await prisma.jobDetailPayload.upsert({
           where: { jobRecordId: targetJob.id },
           update: {
-            jobDesc: cleanDesc,
-            rawData2: stringifiedData
+            jobDesc: cleanDesc
           },
           create: {
             jobRecordId: targetJob.id,
-            jobDesc: cleanDesc,
-            rawData2: stringifiedData
+            jobDesc: cleanDesc
           }
         })
       }

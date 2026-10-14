@@ -133,7 +133,26 @@ export async function processLiepinJobDetail(detail: any, rawPlatform: string, p
   // =========================================================================
   // 第四步：联动更新 Job 职位表中的相关字段
   // =========================================================================
-  // 4.1 同步更新 Job 表中的公司名、公司全称与代招客户公司
+  // 4.1 同步更新 Job 表中的公司名、公司全称、代招客户公司以及平台时间与经验要求
+  const publishTime =
+    jdJson.datePosted ||
+    jdJson.supplementalDomData?.cambrianPubDate ||
+    detail['发布时间'] ||
+    ''
+  const updateTime =
+    detail['最后刷新时间'] ||
+    jdJson.supplementalDomData?.cambrianUpDate ||
+    detail['精确更新时间'] ||
+    detail['页面更新时间'] ||
+    jdJson.supplementalDomData?.domUpdateTime ||
+    ''
+  const detailExperience = detail['工作经验'] || jobInfo.requireWorkYears || jdJson.experienceRequirements || ''
+
+  const existingTargetJob = await prisma.job.findFirst({
+    where: { jobId: String(jobId), platform: standardizedPlatform },
+    select: { id: true, platformPublishTime: true, experience: true }
+  })
+
   const jobUpdateData: any = {
     updatedAt: updatedAt
   }
@@ -154,6 +173,16 @@ export async function processLiepinJobDetail(detail: any, rawPlatform: string, p
     if (companyName) {
       jobUpdateData.companyName = companyName
     }
+  }
+
+  if (publishTime && !existingTargetJob?.platformPublishTime) {
+    jobUpdateData.platformPublishTime = String(publishTime).trim()
+  }
+  if (updateTime) {
+    jobUpdateData.platformUpdateTime = String(updateTime).trim()
+  }
+  if (detailExperience && !existingTargetJob?.experience) {
+    jobUpdateData.experience = String(detailExperience).trim()
   }
 
   await prisma.job.updateMany({
@@ -194,13 +223,11 @@ export async function processLiepinJobDetail(detail: any, rawPlatform: string, p
           where: { jobRecordId: targetJob.id },
           update: {
             jobDesc: cleanDesc,
-            rawData2: stringifiedData,
             ...(jobUrl ? { jobUrl } : {})
           },
           create: {
             jobRecordId: targetJob.id,
             jobDesc: cleanDesc,
-            rawData2: stringifiedData,
             jobUrl: jobUrl || null
           }
         })
