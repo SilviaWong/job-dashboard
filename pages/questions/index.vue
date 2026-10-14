@@ -13,28 +13,6 @@
             题库管理
           </h2>
           <div class="header-actions">
-            <el-select
-              v-model="searchDomain"
-              placeholder="按技术领域筛选..."
-              clearable
-              style="width: 180px"
-              @change="handleSearch"
-            >
-              <!-- TODO: 可以改成动态从后端获取领域列表，这里为了演示简单写死几个，或者只依赖输入 -->
-              <el-option label="Java基础" value="Java基础" />
-              <el-option label="Spring" value="Spring" />
-              <el-option label="数据库" value="数据库" />
-              <el-option label="前端" value="前端" />
-              <el-option label="其他" value="其他" />
-            </el-select>
-            <el-input
-              v-model="searchQuery"
-              placeholder="搜索标准问题或变体题目..."
-              style="width: 250px"
-              clearable
-              @keyup.enter="handleSearch"
-              @clear="handleSearch"
-            />
             <el-button 
               type="warning" 
               style="border: none; border-radius: 6px;" 
@@ -48,6 +26,49 @@
             </el-button>
           </div>
         </div>
+
+        <!-- 梯队分层与组合筛选工具栏 -->
+        <div class="filter-toolbar">
+          <div class="tier-selector">
+            <el-radio-group v-model="selectedTier" @change="handleSearch">
+              <el-radio-button label="all">全部 ({{ tierStats.all || total }})</el-radio-button>
+              <el-radio-button label="T1-必考">🔥 T1-必考 ({{ tierStats.t1 || 0 }})</el-radio-button>
+              <el-radio-button label="T2-进阶">⚡ T2-进阶 ({{ tierStats.t2 || 0 }})</el-radio-button>
+              <el-radio-button label="T3-长尾">☕ T3-长尾 ({{ tierStats.t3 || 0 }})</el-radio-button>
+            </el-radio-group>
+          </div>
+
+          <div class="filter-right">
+            <el-select
+              v-model="searchDomain"
+              placeholder="按技术领域筛选..."
+              clearable
+              style="width: 170px"
+              @change="handleSearch"
+            >
+              <el-option v-for="d in domainOptions" :key="d" :label="d" :value="d" />
+            </el-select>
+
+            <el-select
+              v-model="sortBy"
+              placeholder="排序方式"
+              style="width: 140px"
+              @change="handleSearch"
+            >
+              <el-option label="🔥 按热度排序" value="hotness" />
+              <el-option label="🕒 按最新创建" value="createdAt" />
+            </el-select>
+
+            <el-input
+              v-model="searchQuery"
+              placeholder="搜索题目、考点或变体..."
+              style="width: 220px"
+              clearable
+              @keyup.enter="handleSearch"
+              @clear="handleSearch"
+            />
+          </div>
+        </div>
       </template>
 
       <el-table :data="questions" v-loading="loading" style="width: 100%" row-key="id" @selection-change="handleSelectionChange">
@@ -57,7 +78,12 @@
           <template #default="{ row }">
             <div class="expand-content">
               <div class="core-points-section" style="margin-bottom: 16px;">
-                <h4>核心考点：</h4>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                  <h4 style="margin: 0;">核心考点：</h4>
+                  <el-tag v-if="getTierTag(row)" :type="getTierTag(row).type" :effect="getTierTag(row).effect" size="small" round>
+                    {{ getTierTag(row).label }}
+                  </el-tag>
+                </div>
                 <div class="answer-box" style="background: #fdfdfd;">
                   <p v-if="row.corePoints" style="white-space: pre-wrap; margin: 0;">{{ row.corePoints }}</p>
                   <p v-else class="text-gray-400" style="margin: 0;">暂无核心考点</p>
@@ -88,19 +114,31 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="title" label="标准问题" min-width="250">
+        <el-table-column prop="title" label="标准问题" min-width="260">
           <template #default="{ row }">
-            <div class="question-title">{{ row.title }}</div>
+            <div class="question-title-wrapper" style="display: flex; align-items: flex-start; gap: 8px;">
+              <el-tag 
+                v-if="getTierTag(row)" 
+                :type="getTierTag(row).type" 
+                :effect="getTierTag(row).effect"
+                size="small" 
+                round
+                style="flex-shrink: 0; margin-top: 1px; font-weight: bold;"
+              >
+                {{ getTierTag(row).label }}
+              </el-tag>
+              <span class="question-title">{{ row.title }}</span>
+            </div>
           </template>
         </el-table-column>
 
         <el-table-column prop="domain" label="技术领域" width="140">
           <template #default="{ row }">
-            <span style="color: #333;">{{ row.domain || '-' }}</span>
+            <span style="color: #333; font-weight: 500;">{{ row.domain || '-' }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="categoryTags" label="分类标签" min-width="180">
+        <el-table-column prop="categoryTags" label="分类标签" min-width="160">
           <template #default="{ row }">
             <div v-if="row.categoryTags" style="display: flex; flex-wrap: wrap; gap: 4px;">
               <el-tag 
@@ -117,15 +155,21 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="考察频次" width="100" align="center">
+        <el-table-column label="考察频次" width="120" align="center">
           <template #default="{ row }">
-            <el-tag :type="(row.variants?.length || 0) >= 5 ? 'danger' : ((row.variants?.length || 0) >= 2 ? 'warning' : 'info')" size="small">
-              {{ row.variants?.length || 0 }} 次
-            </el-tag>
+            <el-tooltip :content="`收集到 ${row.variants?.length || 0} 道真实面试变体真题`" placement="top">
+              <el-tag 
+                :type="(row.variants?.length || 0) >= 15 ? 'danger' : ((row.variants?.length || 0) >= 6 ? 'warning' : 'info')" 
+                size="small"
+                style="cursor: pointer; font-weight: 600;"
+              >
+                🔥 {{ row.variants?.length || 0 }} 次
+              </el-tag>
+            </el-tooltip>
           </template>
         </el-table-column>
         
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDialog(row)">编辑</el-button>
             <el-popconfirm title="确定要删除这道题及所有变体吗？" @confirm="deleteQuestion(row.id)">
@@ -170,6 +214,14 @@
             placeholder="请输入标准问题..." 
             style="font-size: 16px;" 
           />
+        </el-form-item>
+
+        <el-form-item label="优先级 / 梯队 (Tier)">
+          <el-radio-group v-model="formData.tier">
+            <el-radio-button label="T1-必考">🔥 T1-必考 (高频必考)</el-radio-button>
+            <el-radio-button label="T2-进阶">⚡ T2-进阶 (技术深度)</el-radio-button>
+            <el-radio-button label="T3-长尾">☕ T3-长尾 (冷门常识)</el-radio-button>
+          </el-radio-group>
         </el-form-item>
         
         <div style="display: flex; gap: 12px;">
@@ -236,6 +288,10 @@ const pageSize = ref(20)
 const total = ref(0)
 const searchQuery = ref('')
 const searchDomain = ref('')
+const selectedTier = ref('all')
+const sortBy = ref('hotness')
+const domainOptions = ref([])
+const tierStats = ref({ all: 0, t1: 0, t2: 0, t3: 0 })
 
 const selectedQuestions = ref([])
 const batchGenerating = ref(false)
@@ -247,6 +303,27 @@ const formRef = ref(null)
 
 const handleSelectionChange = (val) => {
   selectedQuestions.value = val
+}
+
+const getTierTag = (row) => {
+  let tags = []
+  try {
+    if (Array.isArray(row.tags)) tags = row.tags
+    else if (typeof row.tags === 'string') tags = JSON.parse(row.tags || '[]')
+  } catch (e) {
+    tags = []
+  }
+
+  if (tags.includes('T1-必考') || (row.variants && row.variants.length >= 15)) {
+    return { label: 'T1 必考', type: 'danger', effect: 'dark' }
+  }
+  if (tags.includes('T2-进阶') || (row.variants && row.variants.length >= 6)) {
+    return { label: 'T2 进阶', type: 'warning', effect: 'light' }
+  }
+  if (tags.includes('T3-长尾') || (row.variants && row.variants.length >= 0)) {
+    return { label: 'T3 长尾', type: 'info', effect: 'plain' }
+  }
+  return null
 }
 
 const batchAiAnswer = async () => {
@@ -277,7 +354,8 @@ const formData = ref({
   categoryTags: '',
   corePoints: '',
   answerKey: '',
-  aiAnswer: ''
+  aiAnswer: '',
+  tier: 'T1-必考'
 })
 
 const rules = {
@@ -291,13 +369,23 @@ const fetchQuestions = async () => {
       page: page.value,
       pageSize: pageSize.value,
       keyword: searchQuery.value,
-      domain: searchDomain.value
+      domain: searchDomain.value,
+      tier: selectedTier.value,
+      sortBy: sortBy.value
     })
     
     const res = await $fetch(`/api/questions?${params.toString()}`)
     if (res && res.success) {
       questions.value = res.data || []
       total.value = res.total || 0
+      if (res.meta) {
+        if (res.meta.tierStats) {
+          tierStats.value = res.meta.tierStats
+        }
+        if (res.meta.domains && res.meta.domains.length > 0) {
+          domainOptions.value = res.meta.domains
+        }
+      }
     }
   } catch (error) {
     console.error('Failed to fetch questions:', error)
@@ -350,6 +438,17 @@ const aiAnswer = async () => {
 const openDialog = (row = null) => {
   if (row) {
     isEdit.value = true
+    let currentTier = 'T1-必考'
+    try {
+      const parsed = Array.isArray(row.tags) ? row.tags : JSON.parse(row.tags || '[]')
+      if (parsed.length > 0 && parsed[0]) currentTier = parsed[0]
+      else if ((row.variants?.length || 0) < 6) currentTier = 'T3-长尾'
+      else if ((row.variants?.length || 0) < 15) currentTier = 'T2-进阶'
+    } catch (e) {
+      if ((row.variants?.length || 0) < 6) currentTier = 'T3-长尾'
+      else if ((row.variants?.length || 0) < 15) currentTier = 'T2-进阶'
+    }
+
     formData.value = {
       id: row.id,
       title: row.title,
@@ -357,7 +456,8 @@ const openDialog = (row = null) => {
       categoryTags: row.categoryTags || '',
       corePoints: row.corePoints || '',
       answerKey: row.answerKey || '',
-      aiAnswer: row.aiAnswer || ''
+      aiAnswer: row.aiAnswer || '',
+      tier: currentTier
     }
   } else {
     isEdit.value = false
@@ -368,7 +468,8 @@ const openDialog = (row = null) => {
       categoryTags: '',
       corePoints: '',
       answerKey: '',
-      aiAnswer: ''
+      aiAnswer: '',
+      tier: selectedTier.value !== 'all' ? selectedTier.value : 'T1-必考'
     }
   }
   dialogVisible.value = true
@@ -395,7 +496,8 @@ const saveQuestion = async () => {
             categoryTags: formData.value.categoryTags,
             corePoints: formData.value.corePoints,
             answerKey: formData.value.answerKey,
-            aiAnswer: formData.value.aiAnswer
+            aiAnswer: formData.value.aiAnswer,
+            tags: [formData.value.tier]
           }
         })
         
@@ -452,7 +554,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 4px;
+  margin-bottom: 12px;
 }
 .header-title {
   margin: 0;
@@ -466,6 +568,26 @@ onMounted(() => {
 .header-actions {
   display: flex;
   gap: 10px;
+}
+.filter-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 4px;
+}
+.filter-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tier-selector :deep(.el-radio-button__inner) {
+  font-weight: 500;
+}
+.question-title-wrapper {
+  line-height: 1.5;
 }
 .question-title {
   font-weight: 500;

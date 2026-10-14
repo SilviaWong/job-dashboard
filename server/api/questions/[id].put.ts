@@ -16,7 +16,7 @@ export default defineEventHandler(async (event) => {
     if (domain !== undefined) data.domain = domain
     if (categoryTags !== undefined) data.categoryTags = categoryTags
     if (corePoints !== undefined) data.corePoints = corePoints
-    if (tags !== undefined) data.tags = tags ? JSON.stringify(tags) : null
+    if (tags !== undefined) data.tags = typeof tags === 'string' ? tags : (tags ? JSON.stringify(tags) : null)
     if (answerKey !== undefined) data.answerKey = answerKey
     if (aiAnswer !== undefined) data.aiAnswer = aiAnswer
 
