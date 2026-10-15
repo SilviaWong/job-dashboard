@@ -122,6 +122,9 @@
                 </el-button>
               </template>
 
+              <el-button type="primary" plain size="small" @click="handleAgentInspection">
+                <el-icon><Sparkles /></el-icon>&nbsp;🤖 AI 智能巡检
+              </el-button>
               <el-button v-if="!batchAnalyzing" type="success" size="small" @click="handleBatchAiDiagnosis" :disabled="loading && !batchOpening && !batchAnalyzing">
                 <el-icon><Bot /></el-icon>&nbsp;批量 AI 诊断
               </el-button>
@@ -376,10 +379,11 @@
 </template>
 
 <script setup>
-import { shallowRef, ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { shallowRef, ref, computed, onMounted, onUnmounted, watch, inject } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { JobStatus } from '~/utils/enums'
-import { Star, Eye, Ban, ThumbsDown, Trash2, Calendar, Bot, ExternalLink, Loader2, Copy, UserCheck } from 'lucide-vue-next'
+import { Star, Eye, Ban, ThumbsDown, Trash2, Calendar, Bot, ExternalLink, Loader2, Copy, UserCheck, Sparkles } from 'lucide-vue-next'
 import { 
   getJobTimeDiagnosis, 
   getJobTimeline, 
@@ -396,6 +400,41 @@ const batchAnalyzing = ref(false)
 const batchCancelled = ref(false)
 const batchOpening = ref(false)
 const batchOpenCancelled = ref(false)
+
+const route = useRoute()
+const openCopilot = inject('openCopilot', null)
+
+const handleAgentInspection = () => {
+  if (openCopilot) {
+    openCopilot('请启动一次本地职位的智能巡检，过滤掉黑名单和僵尸岗，推荐当前最匹配的前 5 个职位。')
+  } else {
+    ElMessage.info('智能管家就绪中...')
+  }
+}
+
+watch(
+  () => route.query.openJobId,
+  async (newJobId) => {
+    if (!newJobId) return
+    try {
+      const res = await $fetch(`/api/jobs/${newJobId}`)
+      if (res?.success && res?.data && jobDetailDrawerRef.value) {
+        jobDetailDrawerRef.value.open(res.data)
+      } else {
+        const found = jobList.value.find(j => j.id === newJobId)
+        if (found && jobDetailDrawerRef.value) {
+          jobDetailDrawerRef.value.open(found)
+        }
+      }
+    } catch {
+      const found = jobList.value.find(j => j.id === newJobId)
+      if (found && jobDetailDrawerRef.value) {
+        jobDetailDrawerRef.value.open(found)
+      }
+    }
+  },
+  { immediate: true }
+)
 
 // 批量选择与操作状态
 const selectedJobIds = ref([])
